@@ -1,0 +1,2385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Device Map Manager - Upgraded</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            background: white;
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .map-controls button {
+            padding: 10px 16px;
+            border: none;
+            background: #f8f9fa;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .map-controls button:hover {
+            background: #e9ecef;
+        }
+
+        .map-controls button.active {
+            background: #1a73e8;
+            color: white;
+        }
+
+        /* Settings Buttons */
+        .settings-btn {
+            position: absolute;
+            left: 20px;
+            z-index: 1000;
+            background: white;
+            border: none;
+            padding: 12px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .settings-btn:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+            transform: scale(1.05);
+        }
+
+        .settings-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        #deviceSettingsBtn { top: 20px; }
+        #gateWallSettingsBtn { top: 80px; }
+        #searchBtn { top: 140px; }
+
+        /* Top Panel - Hierarchical Search */
+        .top-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+
+        .search-hierarchy {
+            padding: 15px;
+        }
+
+        .hierarchy-level {
+            margin-bottom: 12px;
+        }
+
+        .hierarchy-level label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .hierarchy-level select,
+        .hierarchy-level input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: border 0.2s;
+        }
+
+        .hierarchy-level select:focus,
+        .hierarchy-level input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        .search-results {
+            padding: 10px 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .results-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .result-item {
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 12px;
+            border-left: 3px solid transparent;
+        }
+
+        .result-item:hover {
+            background: #e9ecef;
+            border-left-color: #1a73e8;
+            transform: translateX(2px);
+        }
+
+        .result-item .item-type {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-right: 6px;
+        }
+
+        .type-ohsr { background: #2196F3; color: white; }
+        .type-gateway { background: #4CAF50; color: white; }
+        .type-gatewall { background: #9C27B0; color: white; }
+        .type-pipeline { background: #FF5722; color: white; }
+        .type-household { background: #FF9800; color: white; }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            animation: modalSlide 0.3s ease;
+        }
+
+        @keyframes modalSlide {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 18px;
+            color: #333;
+            margin: 0;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #666;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .close-btn:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 10px 16px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: #333;
+        }
+
+        .tab-btn.active {
+            color: #1a73e8;
+            border-bottom-color: #1a73e8;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 9px 11px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: border 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 11px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1557b0;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .info-text {
+            font-size: 11px;
+            color: #666;
+            margin-top: 8px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            line-height: 1.5;
+        }
+
+        /* Drawing Mode Indicator */
+        .drawing-indicator {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none;
+            animation: pulse 1.5s infinite;
+        }
+
+        .drawing-indicator.active {
+            display: block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Side Panel for Device/Gate Wall Details */
+        .side-panel {
+            position: fixed;
+            right: -450px;
+            top: 0;
+            width: 450px;
+            height: 100vh;
+            background: white;
+            box-shadow: -5px 0 20px rgba(0,0,0,0.3);
+            transition: right 0.3s ease;
+            z-index: 2000;
+            overflow-y: auto;
+        }
+
+        .side-panel.active {
+            right: 0;
+        }
+
+        .panel-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .panel-header.gatewall {
+            background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+        }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 17px;
+            font-weight: 600;
+        }
+
+        .panel-close-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .panel-close-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.1);
+        }
+
+        .panel-section {
+            padding: 18px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .section-header h3 {
+            margin: 0;
+            font-size: 15px;
+            color: #333;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 7px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .detail-value {
+            font-size: 12px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Flow Control Buttons */
+        .flow-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .flow-btn {
+            padding: 10px 14px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+            min-width: 130px;
+        }
+
+        .flow-btn:hover {
+            background: #f0f0f0;
+            border-color: #1a73e8;
+        }
+
+        .flow-btn.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: #1a73e8;
+            color: white;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10000;
+            font-size: 13px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .notification.success { background: #28a745; }
+        .notification.error { background: #dc3545; }
+        .notification.warning { background: #ffc107; color: #333; }
+        .notification.info { background: #17a2b8; }
+    </style>
+</head>
+<body>
+    <div class="map-container">
+        <div id="map"></div>
+        
+        <!-- Settings Buttons -->
+        <button class="settings-btn" id="deviceSettingsBtn" title="Device Settings">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+            </svg>
+        </button>
+
+        <button class="settings-btn" id="gateWallSettingsBtn" title="Gate Wall Settings">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+        </button>
+
+        <button class="settings-btn" id="searchBtn" title="Hierarchical Search">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+        </button>
+
+        <!-- Drawing Mode Indicator -->
+        <div class="drawing-indicator" id="drawingIndicator">
+            🎨 Drawing Mode - Click to add points • Double-tap to start new segment
+        </div>
+
+        <!-- Hierarchical Search Panel -->
+        <div class="top-panel" id="searchPanel" style="display: none;">
+            <div class="search-hierarchy">
+                <h3 style="margin-bottom: 15px; font-size: 15px; color: #333;">🔍 Hierarchical Search</h3>
+                
+                <div class="hierarchy-level">
+                    <label>Country</label>
+                    <select id="searchCountry">
+                        <option value="">Select Country</option>
+                        <option value="India">India</option>
+                    </select>
+                </div>
+
+                <div class="hierarchy-level">
+                    <label>State</label>
+                    <select id="searchState" disabled>
+                        <option value="">Select State</option>
+                    </select>
+                </div>
+
+                <div class="hierarchy-level">
+                    <label>District</label>
+                    <select id="searchDistrict" disabled>
+                        <option value="">Select District</option>
+                    </select>
+                </div>
+
+                <div class="hierarchy-level">
+                    <label>Mandal</label>
+                    <select id="searchMandal" disabled>
+                        <option value="">Select Mandal</option>
+                    </select>
+                </div>
+
+                <div class="hierarchy-level">
+                    <label>Habitation</label>
+                    <select id="searchHabitation" disabled>
+                        <option value="">Select Habitation</option>
+                    </select>
+                </div>
+
+                <div class="hierarchy-level">
+                    <label>Search by Name/ID</label>
+                    <input type="text" id="searchQuery" placeholder="Search devices, gate walls, pipelines...">
+                </div>
+            </div>
+
+            <div class="search-results" id="searchResults" style="display: none;">
+                <div class="results-header">Search Results</div>
+                <div id="searchResultsList"></div>
+            </div>
+        </div>
+
+        <!-- Map Controls -->
+        <div class="map-controls">
+            <button onclick="changeMapLayer('satellite')" class="active" id="btn-satellite">Satellite</button>
+            <button onclick="changeMapLayer('street')" id="btn-street">Map</button>
+            <button onclick="changeMapLayer('terrain')" id="btn-terrain">Terrain</button>
+            <button onclick="changeMapLayer('dark')" id="btn-dark">Dark</button>
+        </div>
+    </div>
+
+    <!-- Device Settings Modal -->
+    <div class="modal" id="deviceModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🏭 Device Management</h2>
+                <button class="close-btn" onclick="closeModal('deviceModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchTab('device', 'add')">Add Device</button>
+                    <button class="tab-btn" onclick="switchTab('device', 'list')">Device List</button>
+                    <button class="tab-btn" onclick="switchTab('device', 'data')">Import/Export</button>
+                </div>
+
+                <!-- Add Device Tab -->
+                <div class="tab-content active" id="device-add-tab">
+                    <div class="form-group">
+                        <label>Country</label>
+                        <select id="deviceCountry">
+                            <option value="India">India</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>State</label>
+                        <input type="text" id="deviceState" placeholder="e.g., Telangana">
+                    </div>
+                    <div class="form-group">
+                        <label>District</label>
+                        <input type="text" id="deviceDistrict" placeholder="e.g., Warangal">
+                    </div>
+                    <div class="form-group">
+                        <label>Mandal</label>
+                        <input type="text" id="deviceMandal" placeholder="e.g., Warangal Urban">
+                    </div>
+                    <div class="form-group">
+                        <label>Habitation</label>
+                        <input type="text" id="deviceHabitation" placeholder="e.g., Hanamkonda">
+                    </div>
+                    <div class="form-group">
+                        <label>Device Name *</label>
+                        <input type="text" id="deviceName" placeholder="e.g., OHSR Tank 1">
+                    </div>
+                    <div class="form-group">
+                        <label>Device ID *</label>
+                        <input type="text" id="deviceId" placeholder="e.g., OHSR001">
+                    </div>
+                    <div class="form-group">
+                        <label>Device Type *</label>
+                        <select id="deviceType">
+                            <option value="ohsr">OHSR Tank</option>
+                            <option value="gateway">Gateway</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Latitude *</label>
+                        <input type="number" id="deviceLat" step="0.000001" placeholder="17.385000">
+                    </div>
+                    <div class="form-group">
+                        <label>Longitude *</label>
+                        <input type="number" id="deviceLng" step="0.000001" placeholder="78.486000">
+                    </div>
+                    <div class="form-group">
+                        <label>Altitude (meters)</label>
+                        <input type="number" id="deviceAlt" placeholder="100">
+                    </div>
+                    <button class="btn btn-primary" onclick="addDevice()">✓ Add Device</button>
+                    <div class="info-text">
+                        💡 Right-click on map to auto-fill coordinates
+                    </div>
+                </div>
+
+                <!-- Device List Tab -->
+                <div class="tab-content" id="device-list-tab">
+                    <div id="deviceListContainer" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Device list will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Import/Export Tab -->
+                <div class="tab-content" id="device-data-tab">
+                    <button class="btn btn-success" onclick="exportAllData()">📥 Export All Data</button>
+                    <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importData(event)">
+                    <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">📤 Import Data</button>
+                    <div class="info-text">
+                        Export all devices, gate walls, and pipelines to JSON, or import previously saved data.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gate Wall Settings Modal -->
+    <div class="modal" id="gateWallModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🚧 Gate Wall Management</h2>
+                <button class="close-btn" onclick="closeModal('gateWallModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchTab('gatewall', 'add')">Add Gate Wall</button>
+                    <button class="tab-btn" onclick="switchTab('gatewall', 'pipeline')">Draw Pipeline</button>
+                    <button class="tab-btn" onclick="switchTab('gatewall', 'list')">Gate Wall List</button>
+                </div>
+
+                <!-- Add Gate Wall Tab -->
+                <div class="tab-content active" id="gatewall-add-tab">
+                    <div class="form-group">
+                        <label>Country</label>
+                        <select id="gwCountry">
+                            <option value="India">India</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>State</label>
+                        <input type="text" id="gwState" placeholder="e.g., Telangana">
+                    </div>
+                    <div class="form-group">
+                        <label>District</label>
+                        <input type="text" id="gwDistrict" placeholder="e.g., Warangal">
+                    </div>
+                    <div class="form-group">
+                        <label>Mandal</label>
+                        <input type="text" id="gwMandal" placeholder="e.g., Warangal Urban">
+                    </div>
+                    <div class="form-group">
+                        <label>Habitation</label>
+                        <input type="text" id="gwHabitation" placeholder="e.g., Hanamkonda">
+                    </div>
+                    <div class="form-group">
+                        <label>Gate Wall Name *</label>
+                        <input type="text" id="gwName" placeholder="e.g., Main Gate 1">
+                    </div>
+                    <div class="form-group">
+                        <label>Gate Wall Type *</label>
+                        <select id="gwType">
+                            <option value="straight">Straight Flow</option>
+                            <option value="t-junction">T-Junction (3-way)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Latitude *</label>
+                        <input type="number" id="gwLat" step="0.000001" placeholder="17.385000">
+                    </div>
+                    <div class="form-group">
+                        <label>Longitude *</label>
+                        <input type="number" id="gwLng" step="0.000001" placeholder="78.486000">
+                    </div>
+                    <div class="form-group">
+                        <label>Altitude (meters)</label>
+                        <input type="number" id="gwAlt" placeholder="100">
+                    </div>
+                    <button class="btn btn-primary" onclick="addGateWall()">✓ Add Gate Wall</button>
+                    <div class="info-text">
+                        💡 Right-click on map to auto-fill coordinates
+                    </div>
+                </div>
+
+                <!-- Draw Pipeline Tab -->
+                <div class="tab-content" id="gatewall-pipeline-tab">
+                    <button class="btn btn-success" id="drawPipelineBtn" onclick="toggleDrawPipeline()">
+                        🎨 Start Drawing Pipeline
+                    </button>
+                    <div class="info-text">
+                        <b>How to draw pipelines:</b><br>
+                        • Click "Start Drawing" to begin<br>
+                        • Click on map to add points<br>
+                        • Double-tap to start new segment<br>
+                        • Click near devices/gate walls to connect<br>
+                        • Click "Finish" when done<br>
+                        <br>
+                        <b>Map is locked during drawing mode</b>
+                    </div>
+                </div>
+
+                <!-- Gate Wall List Tab -->
+                <div class="tab-content" id="gatewall-list-tab">
+                    <div id="gateWallListContainer" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Gate wall list will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Side Panel for Details -->
+    <div class="side-panel" id="detailsPanel">
+        <div class="panel-header" id="panelHeader">
+            <h2 id="panelTitle">Details</h2>
+            <button class="panel-close-btn" onclick="closeDetailsPanel()">&times;</button>
+        </div>
+        <div id="panelContent">
+            <!-- Content will be loaded dynamically -->
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script>
+// ========================================
+// CORE.JS - Core System Functions
+// ========================================
+const Core = {
+    storageKey: 'iot_map_system_v1',
+    
+    init() {
+        this.loadFromStorage();
+    },
+    
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    },
+    
+    saveToStorage() {
+        const data = {
+            devices: DeviceManager.getAllDevices(),
+            gateWalls: GateWallManager.getAllGateWalls(),
+            pipelines: PipelineManager.getAllPipelines(),
+            timestamp: new Date().toISOString()
+        };
+        
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify(data));
+        } catch (e) {
+            console.error('Failed to save to storage:', e);
+        }
+    },
+    
+    loadFromStorage() {
+        try {
+            const data = localStorage.getItem(this.storageKey);
+            if (data) {
+                return JSON.parse(data);
+            }
+        } catch (e) {
+            console.error('Failed to load from storage:', e);
+        }
+        return null;
+    },
+    
+    exportData() {
+        const data = {
+            devices: DeviceManager.getAllDevices(),
+            gateWalls: GateWallManager.getAllGateWalls(),
+            pipelines: PipelineManager.getAllPipelines(),
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+        
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `iot-map-data-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        this.showNotification('Data exported successfully!', 'success');
+    },
+    
+    importData(jsonData) {
+        try {
+            const data = JSON.parse(jsonData);
+            
+            // Clear existing
+            DeviceManager.clearAll();
+            GateWallManager.clearAll();
+            PipelineManager.clearAll();
+            
+            // Import
+            if (data.devices) {
+                data.devices.forEach(d => DeviceManager.addDevice(d, false));
+            }
+            if (data.gateWalls) {
+                data.gateWalls.forEach(gw => GateWallManager.addGateWall(gw, false));
+            }
+            if (data.pipelines) {
+                data.pipelines.forEach(p => PipelineManager.addPipeline(p, false));
+            }
+            
+            this.saveToStorage();
+            this.showNotification('Data imported successfully!', 'success');
+            HierarchySearch.buildHierarchy();
+        } catch (e) {
+            this.showNotification('Failed to import: ' + e.message, 'error');
+        }
+    }
+};
+
+// ========================================
+// DEVICES.JS - Device Management
+// ========================================
+const DeviceManager = {
+    devices: [],
+    markers: {},
+    
+    icons: {
+        ohsr: L.icon({
+            iconUrl: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="13" fill="#2196F3" stroke="white" stroke-width="2.5"/><text x="16" y="21" font-size="13" fill="white" text-anchor="middle" font-weight="bold">T</text></svg>'),
+            iconSize: [32, 32]
+        }),
+        gateway: L.icon({
+            iconUrl: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect x="4" y="4" width="24" height="24" rx="3" fill="#4CAF50" stroke="white" stroke-width="2.5"/><text x="16" y="21" font-size="13" fill="white" text-anchor="middle" font-weight="bold">G</text></svg>'),
+            iconSize: [32, 32]
+        })
+    },
+    
+    init() {
+        const saved = Core.loadFromStorage();
+        if (saved && saved.devices) {
+            saved.devices.forEach(d => this.addDevice(d, false));
+        }
+    },
+    
+    addDevice(device, save = true) {
+        // Validate
+        if (!device.id || !device.name || !device.latitude || !device.longitude) {
+            Core.showNotification('Missing required device fields', 'error');
+            return false;
+        }
+        
+        // Check duplicate
+        if (this.devices.find(d => d.id === device.id)) {
+            Core.showNotification('Device ID already exists', 'warning');
+            return false;
+        }
+        
+        // Set defaults
+        device.country = device.country || 'India';
+        device.state = device.state || '';
+        device.district = device.district || '';
+        device.mandal = device.mandal || '';
+        device.habitation = device.habitation || '';
+        device.device = device.device || 'ohsr';
+        device.altitude = device.altitude || 0;
+        
+        this.devices.push(device);
+        
+        // Add marker
+        const icon = this.icons[device.device] || this.icons.ohsr;
+        const marker = L.marker([device.latitude, device.longitude], {
+            icon,
+            draggable: false
+        })
+        .bindPopup(this.createPopup(device))
+        .addTo(map);
+        
+        marker.on('click', () => this.showDetails(device.id));
+        
+        this.markers[device.id] = marker;
+        
+        if (save) {
+            Core.saveToStorage();
+            Core.showNotification('Device added successfully!', 'success');
+            HierarchySearch.buildHierarchy();
+        }
+        
+        return true;
+    },
+    
+    createPopup(device) {
+        return `
+            <div style="min-width: 220px;">
+                <b>${device.name}</b><br>
+                <small>ID: ${device.id}</small><br>
+                <small>Type: ${device.device.toUpperCase()}</small><br>
+                <small>Location: ${device.habitation || device.mandal || device.district || 'N/A'}</small><br>
+                <div style="margin-top: 10px; display: flex; gap: 6px;">
+                    <button onclick="DeviceManager.showDetails('${device.id}')" 
+                        style="flex: 1; padding: 6px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                        View Details
+                    </button>
+                    <button onclick="DeviceManager.deleteDevice('${device.id}')" 
+                        style="flex: 1; padding: 6px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+    
+    showDetails(deviceId) {
+        const device = this.devices.find(d => d.id === deviceId);
+        if (!device) return;
+        
+        const panel = document.getElementById('detailsPanel');
+        const header = document.getElementById('panelHeader');
+        const title = document.getElementById('panelTitle');
+        const content = document.getElementById('panelContent');
+        
+        header.classList.remove('gatewall');
+        title.textContent = device.name;
+        
+        content.innerHTML = `
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>📋 Device Information</h3>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Device ID:</span>
+                    <span class="detail-value">${device.id}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Device Type:</span>
+                    <span class="detail-value">${device.device.toUpperCase()}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span class="status-badge status-active">Active</span>
+                </div>
+            </div>
+            
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>📍 Location Details</h3>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Country:</span>
+                    <span class="detail-value">${device.country}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">State:</span>
+                    <span class="detail-value">${device.state || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">District:</span>
+                    <span class="detail-value">${device.district || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Mandal:</span>
+                    <span class="detail-value">${device.mandal || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Habitation:</span>
+                    <span class="detail-value">${device.habitation || 'N/A'}</span>
+                </div>
+            </div>
+            
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>🗺️ Coordinates</h3>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Latitude:</span>
+                    <span class="detail-value">${device.latitude.toFixed(6)}°</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Longitude:</span>
+                    <span class="detail-value">${device.longitude.toFixed(6)}°</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Altitude:</span>
+                    <span class="detail-value">${device.altitude} meters</span>
+                </div>
+            </div>
+            
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>📊 Live Data</h3>
+                </div>
+                <div style="text-align: center; padding: 20px; color: #999;">
+                    💧 Water Level: ${(Math.random() * 5 + 2).toFixed(2)}m<br>
+                    🧪 pH Level: ${(Math.random() * 2 + 6.5).toFixed(2)}<br>
+                    🌡️ Temperature: ${(Math.random() * 10 + 20).toFixed(1)}°C
+                </div>
+            </div>
+        `;
+        
+        panel.classList.add('active');
+        
+        // Pan to device
+        map.setView([device.latitude, device.longitude], 16);
+        this.markers[device.id].openPopup();
+    },
+    
+    deleteDevice(deviceId) {
+        if (!confirm('Delete this device?')) return;
+        
+        const idx = this.devices.findIndex(d => d.id === deviceId);
+        if (idx > -1) {
+            // Remove marker
+            if (this.markers[deviceId]) {
+                map.removeLayer(this.markers[deviceId]);
+                delete this.markers[deviceId];
+            }
+            
+            // Remove from pipelines
+            PipelineManager.removeDeviceConnections(deviceId);
+            
+            this.devices.splice(idx, 1);
+            Core.saveToStorage();
+            Core.showNotification('Device deleted', 'info');
+            HierarchySearch.buildHierarchy();
+        }
+    },
+    
+    getAllDevices() {
+        return this.devices;
+    },
+    
+    clearAll() {
+        this.devices.forEach(d => {
+            if (this.markers[d.id]) {
+                map.removeLayer(this.markers[d.id]);
+            }
+        });
+        this.devices = [];
+        this.markers = {};
+    }
+};
+
+// ========================================
+// GATEWALLS.JS - Gate Wall Management
+// ========================================
+const GateWallManager = {
+    gateWalls: [],
+    markers: {},
+    
+    flowDirections: {
+        NONE: 'none',
+        LEFT: 'left',
+        RIGHT: 'right',
+        STRAIGHT: 'straight',
+        ALL: 'all'
+    },
+    
+    icons: {
+        straight: L.divIcon({
+            html: '<div style="background: #9C27B0; width: 35px; height: 35px; border-radius: 8px; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-weight: bold; color: white; font-size: 15px;">S</div>',
+            iconSize: [35, 35],
+            className: ''
+        }),
+        't-junction': L.divIcon({
+            html: '<div style="background: #FF5722; width: 35px; height: 35px; border-radius: 8px; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-weight: bold; color: white; font-size: 15px;">T</div>',
+            iconSize: [35, 35],
+            className: ''
+        })
+    },
+    
+    init() {
+        const saved = Core.loadFromStorage();
+        if (saved && saved.gateWalls) {
+            saved.gateWalls.forEach(gw => this.addGateWall(gw, false));
+        }
+        
+        // Start simulation
+        this.startSimulation();
+    },
+    
+    addGateWall(gateWall, save = true) {
+        // Validate
+        if (!gateWall.name || !gateWall.latitude || !gateWall.longitude) {
+            Core.showNotification('Missing required gate wall fields', 'error');
+            return false;
+        }
+        
+        // Generate ID
+        if (!gateWall.id) {
+            gateWall.id = 'gw_' + Date.now();
+        }
+        
+        // Check duplicate
+        if (this.gateWalls.find(gw => gw.id === gateWall.id)) {
+            Core.showNotification('Gate wall ID already exists', 'warning');
+            return false;
+        }
+        
+        // Set defaults
+        gateWall.country = gateWall.country || 'India';
+        gateWall.state = gateWall.state || '';
+        gateWall.district = gateWall.district || '';
+        gateWall.mandal = gateWall.mandal || '';
+        gateWall.habitation = gateWall.habitation || '';
+        gateWall.type = gateWall.type || 'straight';
+        gateWall.altitude = gateWall.altitude || 0;
+        gateWall.flowDirection = gateWall.flowDirection || this.flowDirections.NONE;
+        gateWall.batteryLevel = gateWall.batteryLevel || 100;
+        gateWall.pressure = gateWall.pressure || 0;
+        gateWall.isActive = gateWall.isActive !== undefined ? gateWall.isActive : false;
+        gateWall.connectedPipelines = gateWall.connectedPipelines || [];
+        gateWall.history = gateWall.history || [];
+        
+        this.gateWalls.push(gateWall);
+        
+        // Add marker
+        const icon = this.icons[gateWall.type] || this.icons.straight;
+        const marker = L.marker([gateWall.latitude, gateWall.longitude], {
+            icon,
+            draggable: false
+        })
+        .bindPopup(this.createPopup(gateWall))
+        .addTo(map);
+        
+        marker.on('click', () => this.showDetails(gateWall.id));
+        
+        this.markers[gateWall.id] = marker;
+        
+        if (save) {
+            this.logHistory(gateWall, 'Gate wall created');
+            Core.saveToStorage();
+            Core.showNotification('Gate wall added successfully!', 'success');
+            HierarchySearch.buildHierarchy();
+        }
+        
+        return true;
+    },
+    
+    createPopup(gw) {
+        const flowStatus = gw.isActive ? '🟢 Active' : '🔴 Inactive';
+        const batteryIcon = gw.batteryLevel > 20 ? '🔋' : '⚠️';
+        
+        return `
+            <div style="min-width: 220px;">
+                <b>${gw.name}</b><br>
+                <small>ID: ${gw.id}</small><br>
+                <small>Type: ${gw.type.toUpperCase()}</small><br>
+                <small>Flow: ${gw.flowDirection}</small><br>
+                <small>Status: ${flowStatus}</small><br>
+                <small>Battery: ${batteryIcon} ${gw.batteryLevel.toFixed(0)}%</small><br>
+                <small>Pressure: ${gw.pressure} PSI</small><br>
+                <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button onclick="GateWallManager.showDetails('${gw.id}')" 
+                        style="flex: 1; padding: 6px; background: #9C27B0; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                        Control
+                    </button>
+                    <button onclick="GateWallManager.deleteGateWall('${gw.id}')" 
+                        style="flex: 1; padding: 6px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+    
+    showDetails(gateWallId) {
+        const gw = this.gateWalls.find(g => g.id === gateWallId);
+        if (!gw) return;
+        
+        const panel = document.getElementById('detailsPanel');
+        const header = document.getElementById('panelHeader');
+        const title = document.getElementById('panelTitle');
+        const content = document.getElementById('panelContent');
+        
+        header.classList.add('gatewall');
+        title.textContent = gw.name;
+        
+        const flowControls = this.getFlowControlsHTML(gw);
+        
+        content.innerHTML = `
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>🚧 Gate Wall Information</h3>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Gate Wall ID:</span>
+                    <span class="detail-value">${gw.id}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Type:</span>
+                    <span class="detail-value">${gw.type.toUpperCase()}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Battery Level:</span>
+                    <span class="detail-value" id="gwBattery">${gw.batteryLevel.toFixed(0)}%</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Pressure:</span>
+                    <span class="detail-value" id="gwPressure">${gw.pressure} PSI</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span class="status-badge ${gw.isActive ? 'status-active' : 'status-inactive'}" id="gwStatus">
+                        ${gw.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                </div>
+            </div>
+            
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>🎮 Flow Direction Control</h3>
+                </div>
+                <div class="flow-controls" id="flowControls">
+                    ${flowControls}
+                </div>
+                <div class="info-text" style="margin-top: 10px;">
+                    💧 <b>Blue pipelines</b> = Water flowing<br>
+                    🔴 <b>Red pipelines</b> = No water flow
+                </div>
+            </div>
+            
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>📍 Location Details</h3>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Habitation:</span>
+                    <span class="detail-value">${gw.habitation || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Mandal:</span>
+                    <span class="detail-value">${gw.mandal || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">District:</span>
+                    <span class="detail-value">${gw.district || 'N/A'}</span>
+                </div>
+            </div>
+        `;
+        
+        panel.classList.add('active');
+        
+        // Pan to gate wall
+        map.setView([gw.latitude, gw.longitude], 16);
+        this.markers[gw.id].openPopup();
+    },
+    
+    getFlowControlsHTML(gw) {
+        const FD = this.flowDirections;
+        
+        if (gw.type === 'straight') {
+            return `
+                <button class="flow-btn ${gw.flowDirection === FD.STRAIGHT ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.STRAIGHT}')">
+                    ➡️ Flow Straight
+                </button>
+                <button class="flow-btn ${gw.flowDirection === FD.NONE ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.NONE}')">
+                    ⛔ Stop Flow
+                </button>
+            `;
+        } else {
+            return `
+                <button class="flow-btn ${gw.flowDirection === FD.LEFT ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.LEFT}')">
+                    ⬅️ Flow Left
+                </button>
+                <button class="flow-btn ${gw.flowDirection === FD.RIGHT ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.RIGHT}')">
+                    ➡️ Flow Right
+                </button>
+                <button class="flow-btn ${gw.flowDirection === FD.STRAIGHT ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.STRAIGHT}')">
+                    ⬆️ Flow Straight
+                </button>
+                <button class="flow-btn ${gw.flowDirection === FD.ALL ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.ALL}')">
+                    🔀 All Directions
+                </button>
+                <button class="flow-btn ${gw.flowDirection === FD.NONE ? 'active' : ''}" 
+                    onclick="GateWallManager.setFlowDirection('${gw.id}', '${FD.NONE}')">
+                    ⛔ Stop Flow
+                </button>
+            `;
+        }
+    },
+    
+    setFlowDirection(gateWallId, direction) {
+        const gw = this.gateWalls.find(g => g.id === gateWallId);
+        if (!gw) return;
+        
+        gw.flowDirection = direction;
+        gw.isActive = direction !== this.flowDirections.NONE;
+        gw.pressure = gw.isActive ? (Math.random() * 30 + 20).toFixed(1) : 0;
+        
+        this.logHistory(gw, `Flow direction changed to: ${direction}`);
+        
+        // Update pipelines
+        PipelineManager.updateWaterFlow();
+        
+        // Update popup
+        if (this.markers[gw.id]) {
+            this.markers[gw.id].setPopupContent(this.createPopup(gw));
+        }
+        
+        // Update panel if open
+        const panel = document.getElementById('detailsPanel');
+        if (panel.classList.contains('active')) {
+            const gwBattery = document.getElementById('gwBattery');
+            const gwPressure = document.getElementById('gwPressure');
+            const gwStatus = document.getElementById('gwStatus');
+            const flowControls = document.getElementById('flowControls');
+            
+            if (gwBattery) gwBattery.textContent = gw.batteryLevel.toFixed(0) + '%';
+            if (gwPressure) gwPressure.textContent = gw.pressure + ' PSI';
+            if (gwStatus) {
+                gwStatus.textContent = gw.isActive ? 'Active' : 'Inactive';
+                gwStatus.className = 'status-badge ' + (gw.isActive ? 'status-active' : 'status-inactive');
+            }
+            if (flowControls) {
+                flowControls.innerHTML = this.getFlowControlsHTML(gw);
+            }
+        }
+        
+        Core.saveToStorage();
+        Core.showNotification(`Flow set to: ${direction}`, 'success');
+    },
+    
+    logHistory(gw, event) {
+        gw.history.push({
+            timestamp: new Date().toISOString(),
+            event: event,
+            flowDirection: gw.flowDirection,
+            pressure: gw.pressure,
+            batteryLevel: gw.batteryLevel,
+            isActive: gw.isActive
+        });
+        
+        // Keep last 1000
+        if (gw.history.length > 1000) {
+            gw.history = gw.history.slice(-1000);
+        }
+    },
+    
+    startSimulation() {
+        setInterval(() => {
+            this.gateWalls.forEach(gw => {
+                if (gw.isActive) {
+                    // Battery drain
+                    gw.batteryLevel = Math.max(0, gw.batteryLevel - 0.01);
+                    
+                    // Pressure fluctuation
+                    if (gw.flowDirection !== this.flowDirections.NONE) {
+                        gw.pressure = (parseFloat(gw.pressure) + (Math.random() - 0.5) * 2).toFixed(1);
+                        gw.pressure = Math.max(0, Math.min(50, gw.pressure));
+                    }
+                    
+                    // Update popup if open
+                    if (gw.marker && this.markers[gw.id].isPopupOpen()) {
+                        this.markers[gw.id].setPopupContent(this.createPopup(gw));
+                    }
+                    
+                    // Auto-shutdown on zero battery
+                    if (gw.batteryLevel <= 0) {
+                        this.setFlowDirection(gw.id, this.flowDirections.NONE);
+                        this.logHistory(gw, 'Auto-shutdown: Battery depleted');
+                        Core.showNotification(`${gw.name}: Battery depleted!`, 'warning');
+                    }
+                }
+            });
+            
+            Core.saveToStorage();
+        }, 5000);
+    },
+    
+    deleteGateWall(gateWallId) {
+        if (!confirm('Delete this gate wall? This will remove its connections.')) return;
+        
+        const idx = this.gateWalls.findIndex(gw => gw.id === gateWallId);
+        if (idx > -1) {
+            // Remove marker
+            if (this.markers[gateWallId]) {
+                map.removeLayer(this.markers[gateWallId]);
+                delete this.markers[gateWallId];
+            }
+            
+            // Remove from pipelines
+            PipelineManager.removeGateWallConnections(gateWallId);
+            
+            this.gateWalls.splice(idx, 1);
+            Core.saveToStorage();
+            Core.showNotification('Gate wall deleted', 'info');
+            HierarchySearch.buildHierarchy();
+        }
+    },
+    
+    getAllGateWalls() {
+        return this.gateWalls;
+    },
+    
+    clearAll() {
+        this.gateWalls.forEach(gw => {
+            if (this.markers[gw.id]) {
+                map.removeLayer(this.markers[gw.id]);
+            }
+        });
+        this.gateWalls = [];
+        this.markers = {};
+    }
+};
+
+// Continue in next part...
+// ========================================
+// PIPELINES.JS - Pipeline Management
+// ========================================
+const PipelineManager = {
+    pipelines: [],
+    polylines: {},
+    drawingMode: false,
+    currentPipeline: null,
+    tempLine: null,
+    lastClickTime: 0,
+    lastClickPosition: null,
+    doubleTapDelay: 300,
+    
+    init() {
+        this.setupMapEvents();
+        
+        const saved = Core.loadFromStorage();
+        if (saved && saved.pipelines) {
+            saved.pipelines.forEach(p => this.addPipeline(p, false));
+        }
+    },
+    
+    setupMapEvents() {
+        map.on('click', (e) => {
+            if (this.drawingMode) {
+                this.handleMapClick(e);
+            }
+        });
+    },
+    
+    handleMapClick(e) {
+        const currentTime = Date.now();
+        const timeDiff = currentTime - this.lastClickTime;
+        const isSameLocation = this.lastClickPosition && 
+            Math.abs(e.latlng.lat - this.lastClickPosition.lat) < 0.0001 &&
+            Math.abs(e.latlng.lng - this.lastClickPosition.lng) < 0.0001;
+        
+        // Double tap detection
+        if (timeDiff < this.doubleTapDelay && isSameLocation) {
+            this.finishCurrentSegment(e.latlng);
+        } else {
+            this.addPipelinePoint(e.latlng);
+        }
+        
+        this.lastClickTime = currentTime;
+        this.lastClickPosition = e.latlng;
+    },
+    
+    addPipelinePoint(latlng) {
+        if (!this.currentPipeline) {
+            this.currentPipeline = {
+                id: 'pipeline_' + Date.now(),
+                name: `Pipeline ${this.pipelines.length + 1}`,
+                points: [],
+                segments: [],
+                connectedDevices: [],
+                connectedGateWalls: [],
+                flowActive: false,
+                color: '#FF0000',
+                pressure: 0,
+                flowRate: 0
+            };
+        }
+        
+        this.currentPipeline.points.push([latlng.lat, latlng.lng]);
+        
+        // Check connections
+        this.checkNearbyConnections(latlng);
+        
+        this.updateTempLine();
+    },
+    
+    checkNearbyConnections(latlng) {
+        const threshold = 0.0005; // ~50 meters
+        
+        // Check devices
+        DeviceManager.getAllDevices().forEach(device => {
+            const distance = Math.sqrt(
+                Math.pow(device.latitude - latlng.lat, 2) + 
+                Math.pow(device.longitude - latlng.lng, 2)
+            );
+            
+            if (distance < threshold && !this.currentPipeline.connectedDevices.includes(device.id)) {
+                this.currentPipeline.connectedDevices.push(device.id);
+                Core.showNotification(`Connected to ${device.name}`, 'success');
+            }
+        });
+        
+        // Check gate walls
+        GateWallManager.getAllGateWalls().forEach(gw => {
+            const distance = Math.sqrt(
+                Math.pow(gw.latitude - latlng.lat, 2) + 
+                Math.pow(gw.longitude - latlng.lng, 2)
+            );
+            
+            if (distance < threshold && !this.currentPipeline.connectedGateWalls.includes(gw.id)) {
+                this.currentPipeline.connectedGateWalls.push(gw.id);
+                
+                // Update gate wall connections
+                if (!gw.connectedPipelines.includes(this.currentPipeline.id)) {
+                    gw.connectedPipelines.push(this.currentPipeline.id);
+                }
+                
+                Core.showNotification(`Connected to ${gw.name}`, 'success');
+            }
+        });
+    },
+    
+    updateTempLine() {
+        if (this.tempLine) {
+            map.removeLayer(this.tempLine);
+        }
+        
+        if (this.currentPipeline.points.length > 0) {
+            this.tempLine = L.polyline(this.currentPipeline.points, {
+                color: this.currentPipeline.color,
+                weight: 4,
+                opacity: 0.7,
+                dashArray: '10, 10'
+            }).addTo(map);
+        }
+    },
+    
+    finishCurrentSegment(latlng) {
+        if (this.currentPipeline && this.currentPipeline.points.length > 1) {
+            this.currentPipeline.segments.push([...this.currentPipeline.points]);
+            this.currentPipeline.points = [[latlng.lat, latlng.lng]];
+            this.updateTempLine();
+            Core.showNotification('New segment started', 'info');
+        }
+    },
+    
+    startDrawing() {
+        this.drawingMode = true;
+        this.currentPipeline = null;
+        map.dragging.disable();
+        map.getContainer().style.cursor = 'crosshair';
+        
+        const indicator = document.getElementById('drawingIndicator');
+        const btn = document.getElementById('drawPipelineBtn');
+        
+        indicator.classList.add('active');
+        btn.textContent = '✓ Finish Pipeline';
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-danger');
+        
+        Core.showNotification('Click to add points. Double-tap for new segment.', 'info');
+    },
+    
+    finishDrawing() {
+        if (this.currentPipeline && this.currentPipeline.points.length > 1) {
+            this.currentPipeline.segments.push([...this.currentPipeline.points]);
+            this.addPipeline(this.currentPipeline);
+            Core.showNotification('Pipeline created successfully!', 'success');
+        } else if (this.currentPipeline) {
+            Core.showNotification('Need at least 2 points', 'warning');
+        }
+        
+        if (this.tempLine) {
+            map.removeLayer(this.tempLine);
+            this.tempLine = null;
+        }
+        
+        this.drawingMode = false;
+        this.currentPipeline = null;
+        map.dragging.enable();
+        map.getContainer().style.cursor = '';
+        
+        const indicator = document.getElementById('drawingIndicator');
+        const btn = document.getElementById('drawPipelineBtn');
+        
+        indicator.classList.remove('active');
+        btn.textContent = '🎨 Start Drawing Pipeline';
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-success');
+    },
+    
+    addPipeline(pipeline, save = true) {
+        // Validate
+        if (!pipeline.id || !pipeline.segments || pipeline.segments.length === 0) {
+            Core.showNotification('Invalid pipeline data', 'error');
+            return false;
+        }
+        
+        // Check duplicate
+        if (this.pipelines.find(p => p.id === pipeline.id)) {
+            Core.showNotification('Pipeline ID already exists', 'warning');
+            return false;
+        }
+        
+        this.pipelines.push(pipeline);
+        
+        // Draw all segments
+        pipeline.polylines = [];
+        pipeline.segments.forEach(segment => {
+            const line = L.polyline(segment, {
+                color: pipeline.color,
+                weight: 4,
+                opacity: 0.8
+            })
+            .bindPopup(this.createPopup(pipeline))
+            .addTo(map);
+            
+            pipeline.polylines.push(line);
+        });
+        
+        if (save) {
+            Core.saveToStorage();
+            Core.showNotification('Pipeline added successfully!', 'success');
+        }
+        
+        this.updateWaterFlow();
+        return true;
+    },
+    
+    createPopup(pipeline) {
+        const connectedDevices = pipeline.connectedDevices
+            .map(id => DeviceManager.getAllDevices().find(d => d.id === id))
+            .filter(d => d)
+            .map(d => d.name)
+            .join(', ');
+        
+        const connectedGWs = pipeline.connectedGateWalls
+            .map(id => GateWallManager.getAllGateWalls().find(gw => gw.id === id))
+            .filter(gw => gw)
+            .map(gw => gw.name)
+            .join(', ');
+        
+        return `
+            <div style="min-width: 220px;">
+                <b>${pipeline.name}</b><br>
+                <small>ID: ${pipeline.id}</small><br>
+                <small>Status: ${pipeline.flowActive ? '🟢 Active' : '🔴 Inactive'}</small><br>
+                <small>Pressure: ${pipeline.pressure} PSI</small><br>
+                <small>Flow Rate: ${pipeline.flowRate} L/min</small><br>
+                ${connectedDevices ? `<small>Devices: ${connectedDevices}</small><br>` : ''}
+                ${connectedGWs ? `<small>Gate Walls: ${connectedGWs}</small><br>` : ''}
+                <div style="margin-top: 10px;">
+                    <button onclick="PipelineManager.deletePipeline('${pipeline.id}')" 
+                        style="width: 100%; padding: 6px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                        Delete Pipeline
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+    
+    updateWaterFlow() {
+        this.pipelines.forEach(pipeline => {
+            let hasActiveFlow = false;
+            
+            // Check connected gate walls
+            for (let gwId of pipeline.connectedGateWalls) {
+                const gw = GateWallManager.getAllGateWalls().find(g => g.id === gwId);
+                if (gw && gw.isActive && gw.flowDirection !== 'none') {
+                    hasActiveFlow = true;
+                    break;
+                }
+            }
+            
+            // Update pipeline properties
+            pipeline.flowActive = hasActiveFlow;
+            pipeline.color = hasActiveFlow ? '#2196F3' : '#FF0000';
+            pipeline.pressure = hasActiveFlow ? (Math.random() * 25 + 15).toFixed(1) : 0;
+            pipeline.flowRate = hasActiveFlow ? (Math.random() * 50 + 100).toFixed(1) : 0;
+            
+            // Update visual
+            if (pipeline.polylines) {
+                pipeline.polylines.forEach(line => {
+                    line.setStyle({ 
+                        color: pipeline.color,
+                        opacity: hasActiveFlow ? 1 : 0.5
+                    });
+                    line.setPopupContent(this.createPopup(pipeline));
+                });
+            }
+        });
+        
+        Core.saveToStorage();
+    },
+    
+    deletePipeline(pipelineId) {
+        if (!confirm('Delete this pipeline?')) return;
+        
+        const idx = this.pipelines.findIndex(p => p.id === pipelineId);
+        if (idx > -1) {
+            const pipeline = this.pipelines[idx];
+            
+            // Remove polylines
+            if (pipeline.polylines) {
+                pipeline.polylines.forEach(line => map.removeLayer(line));
+            }
+            
+            this.pipelines.splice(idx, 1);
+            Core.saveToStorage();
+            Core.showNotification('Pipeline deleted', 'info');
+        }
+    },
+    
+    removeDeviceConnections(deviceId) {
+        this.pipelines.forEach(pipeline => {
+            const idx = pipeline.connectedDevices.indexOf(deviceId);
+            if (idx > -1) {
+                pipeline.connectedDevices.splice(idx, 1);
+            }
+        });
+        this.updateWaterFlow();
+    },
+    
+    removeGateWallConnections(gateWallId) {
+        this.pipelines.forEach(pipeline => {
+            const idx = pipeline.connectedGateWalls.indexOf(gateWallId);
+            if (idx > -1) {
+                pipeline.connectedGateWalls.splice(idx, 1);
+            }
+        });
+        this.updateWaterFlow();
+    },
+    
+    getAllPipelines() {
+        return this.pipelines;
+    },
+    
+    clearAll() {
+        this.pipelines.forEach(p => {
+            if (p.polylines) {
+                p.polylines.forEach(line => map.removeLayer(line));
+            }
+        });
+        this.pipelines = [];
+        this.polylines = {};
+    }
+};
+
+// ========================================
+// HIERARCHY.JS - Hierarchical Search
+// ========================================
+const HierarchySearch = {
+    hierarchy: {},
+    
+    init() {
+        this.setupEventListeners();
+        this.buildHierarchy();
+    },
+    
+    setupEventListeners() {
+        document.getElementById('searchCountry').onchange = (e) => this.onCountryChange(e.target.value);
+        document.getElementById('searchState').onchange = (e) => this.onStateChange(e.target.value);
+        document.getElementById('searchDistrict').onchange = (e) => this.onDistrictChange(e.target.value);
+        document.getElementById('searchMandal').onchange = (e) => this.onMandalChange(e.target.value);
+        document.getElementById('searchHabitation').onchange = (e) => this.onHabitationChange(e.target.value);
+        document.getElementById('searchQuery').oninput = (e) => this.onSearchQuery(e.target.value);
+    },
+    
+    buildHierarchy() {
+        this.hierarchy = {};
+        
+        // Build from devices
+        DeviceManager.getAllDevices().forEach(device => {
+            this.addToHierarchy(device, 'device');
+        });
+        
+        // Build from gate walls
+        GateWallManager.getAllGateWalls().forEach(gw => {
+            this.addToHierarchy(gw, 'gatewall');
+        });
+        
+        // Populate country dropdown
+        this.populateCountries();
+    },
+    
+    addToHierarchy(item, type) {
+        const country = item.country || 'India';
+        const state = item.state || 'Unassigned';
+        const district = item.district || 'Unassigned';
+        const mandal = item.mandal || 'Unassigned';
+        const habitation = item.habitation || 'Unassigned';
+        
+        if (!this.hierarchy[country]) this.hierarchy[country] = {};
+        if (!this.hierarchy[country][state]) this.hierarchy[country][state] = {};
+        if (!this.hierarchy[country][state][district]) this.hierarchy[country][state][district] = {};
+        if (!this.hierarchy[country][state][district][mandal]) this.hierarchy[country][state][district][mandal] = {};
+        if (!this.hierarchy[country][state][district][mandal][habitation]) this.hierarchy[country][state][district][mandal][habitation] = {
+            devices: [],
+            gateWalls: []
+        };
+        
+        if (type === 'device') {
+            this.hierarchy[country][state][district][mandal][habitation].devices.push(item);
+        } else {
+            this.hierarchy[country][state][district][mandal][habitation].gateWalls.push(item);
+        }
+    },
+    
+    populateCountries() {
+        const select = document.getElementById('searchCountry');
+        const countries = Object.keys(this.hierarchy);
+        
+        if (countries.length > 0) {
+            select.innerHTML = '<option value="">Select Country</option>' + 
+                countries.map(c => `<option value="${c}">${c}</option>`).join('');
+        }
+    },
+    
+    onCountryChange(country) {
+        const stateSelect = document.getElementById('searchState');
+        
+        if (country && this.hierarchy[country]) {
+            const states = Object.keys(this.hierarchy[country]);
+            stateSelect.innerHTML = '<option value="">Select State</option>' + 
+                states.map(s => `<option value="${s}">${s}</option>`).join('');
+            stateSelect.disabled = false;
+        } else {
+            stateSelect.innerHTML = '<option value="">Select State</option>';
+            stateSelect.disabled = true;
+        }
+        
+        this.resetDropdowns(['searchDistrict', 'searchMandal', 'searchHabitation']);
+        this.clearResults();
+    },
+    
+    onStateChange(state) {
+        const country = document.getElementById('searchCountry').value;
+        const districtSelect = document.getElementById('searchDistrict');
+        
+        if (country && state && this.hierarchy[country][state]) {
+            const districts = Object.keys(this.hierarchy[country][state]);
+            districtSelect.innerHTML = '<option value="">Select District</option>' + 
+                districts.map(d => `<option value="${d}">${d}</option>`).join('');
+            districtSelect.disabled = false;
+        } else {
+            districtSelect.innerHTML = '<option value="">Select District</option>';
+            districtSelect.disabled = true;
+        }
+        
+        this.resetDropdowns(['searchMandal', 'searchHabitation']);
+        this.clearResults();
+    },
+    
+    onDistrictChange(district) {
+        const country = document.getElementById('searchCountry').value;
+        const state = document.getElementById('searchState').value;
+        const mandalSelect = document.getElementById('searchMandal');
+        
+        if (country && state && district && this.hierarchy[country][state][district]) {
+            const mandals = Object.keys(this.hierarchy[country][state][district]);
+            mandalSelect.innerHTML = '<option value="">Select Mandal</option>' + 
+                mandals.map(m => `<option value="${m}">${m}</option>`).join('');
+            mandalSelect.disabled = false;
+        } else {
+            mandalSelect.innerHTML = '<option value="">Select Mandal</option>';
+            mandalSelect.disabled = true;
+        }
+        
+        this.resetDropdowns(['searchHabitation']);
+        this.clearResults();
+    },
+    
+    onMandalChange(mandal) {
+        const country = document.getElementById('searchCountry').value;
+        const state = document.getElementById('searchState').value;
+        const district = document.getElementById('searchDistrict').value;
+        const habitationSelect = document.getElementById('searchHabitation');
+        
+        if (country && state && district && mandal && this.hierarchy[country][state][district][mandal]) {
+            const habitations = Object.keys(this.hierarchy[country][state][district][mandal]);
+            habitationSelect.innerHTML = '<option value="">Select Habitation</option>' + 
+                habitations.map(h => `<option value="${h}">${h}</option>`).join('');
+            habitationSelect.disabled = false;
+        } else {
+            habitationSelect.innerHTML = '<option value="">Select Habitation</option>';
+            habitationSelect.disabled = true;
+        }
+        
+        this.clearResults();
+    },
+    
+    onHabitationChange(habitation) {
+        const country = document.getElementById('searchCountry').value;
+        const state = document.getElementById('searchState').value;
+        const district = document.getElementById('searchDistrict').value;
+        const mandal = document.getElementById('searchMandal').value;
+        
+        if (country && state && district && mandal && habitation) {
+            const data = this.hierarchy[country][state][district][mandal][habitation];
+            this.displayResults([...data.devices, ...data.gateWalls]);
+        }
+    },
+    
+    onSearchQuery(query) {
+        if (query.length < 2) {
+            this.clearResults();
+            return;
+        }
+        
+        const results = [];
+        const q = query.toLowerCase();
+        
+        // Search devices
+        DeviceManager.getAllDevices().forEach(device => {
+            if (device.name.toLowerCase().includes(q) || 
+                device.id.toLowerCase().includes(q)) {
+                results.push({ ...device, type: 'device' });
+            }
+        });
+        
+        // Search gate walls
+        GateWallManager.getAllGateWalls().forEach(gw => {
+            if (gw.name.toLowerCase().includes(q) || 
+                gw.id.toLowerCase().includes(q)) {
+                results.push({ ...gw, type: 'gatewall' });
+            }
+        });
+        
+        // Search pipelines
+        PipelineManager.getAllPipelines().forEach(pipeline => {
+            if (pipeline.name.toLowerCase().includes(q) || 
+                pipeline.id.toLowerCase().includes(q)) {
+                results.push({ ...pipeline, type: 'pipeline' });
+            }
+        });
+        
+        this.displayResults(results);
+    },
+    
+    displayResults(items) {
+        const container = document.getElementById('searchResults');
+        const list = document.getElementById('searchResultsList');
+        
+        if (items.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        list.innerHTML = items.map(item => {
+            const type = item.type || (item.device ? 'device' : 'gatewall');
+            const typeClass = type === 'device' ? (item.device === 'ohsr' ? 'type-ohsr' : 'type-gateway') : 
+                             type === 'gatewall' ? 'type-gatewall' : 'type-pipeline';
+            const typeName = type === 'device' ? item.device.toUpperCase() : 
+                            type === 'gatewall' ? 'GATE WALL' : 'PIPELINE';
+            
+            return `
+                <div class="result-item" onclick="HierarchySearch.selectItem('${item.id}', '${type}')">
+                    <span class="item-type ${typeClass}">${typeName}</span>
+                    <b>${item.name}</b><br>
+                    <small>${item.habitation || item.mandal || item.district || 'N/A'}</small>
+                </div>
+            `;
+        }).join('');
+        
+        container.style.display = 'block';
+    },
+    
+    selectItem(id, type) {
+        if (type === 'device') {
+            DeviceManager.showDetails(id);
+        } else if (type === 'gatewall') {
+            GateWallManager.showDetails(id);
+        } else if (type === 'pipeline') {
+            const pipeline = PipelineManager.getAllPipelines().find(p => p.id === id);
+            if (pipeline && pipeline.segments.length > 0) {
+                const firstSegment = pipeline.segments[0];
+                const firstPoint = firstSegment[0];
+                map.setView(firstPoint, 15);
+                
+                if (pipeline.polylines && pipeline.polylines[0]) {
+                    pipeline.polylines[0].openPopup();
+                }
+            }
+        }
+    },
+    
+    clearResults() {
+        document.getElementById('searchResults').style.display = 'none';
+        document.getElementById('searchResultsList').innerHTML = '';
+    },
+    
+    resetDropdowns(ids) {
+        ids.forEach(id => {
+            const select = document.getElementById(id);
+            select.innerHTML = '<option value="">Select...</option>';
+            select.disabled = true;
+        });
+    }
+};
+
+// ========================================
+// UI FUNCTIONS
+// ========================================
+function addDevice() {
+    const device = {
+        name: document.getElementById('deviceName').value.trim(),
+        id: document.getElementById('deviceId').value.trim(),
+        device: document.getElementById('deviceType').value,
+        country: document.getElementById('deviceCountry').value,
+        state: document.getElementById('deviceState').value.trim(),
+        district: document.getElementById('deviceDistrict').value.trim(),
+        mandal: document.getElementById('deviceMandal').value.trim(),
+        habitation: document.getElementById('deviceHabitation').value.trim(),
+        latitude: parseFloat(document.getElementById('deviceLat').value),
+        longitude: parseFloat(document.getElementById('deviceLng').value),
+        altitude: parseFloat(document.getElementById('deviceAlt').value) || 0
+    };
+    
+    if (DeviceManager.addDevice(device)) {
+        // Clear form
+        ['deviceName', 'deviceId', 'deviceState', 'deviceDistrict', 'deviceMandal', 'deviceHabitation', 'deviceLat', 'deviceLng', 'deviceAlt'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+    }
+}
+
+function addGateWall() {
+    const gateWall = {
+        name: document.getElementById('gwName').value.trim(),
+        type: document.getElementById('gwType').value,
+        country: document.getElementById('gwCountry').value,
+        state: document.getElementById('gwState').value.trim(),
+        district: document.getElementById('gwDistrict').value.trim(),
+        mandal: document.getElementById('gwMandal').value.trim(),
+        habitation: document.getElementById('gwHabitation').value.trim(),
+        latitude: parseFloat(document.getElementById('gwLat').value),
+        longitude: parseFloat(document.getElementById('gwLng').value),
+        altitude: parseFloat(document.getElementById('gwAlt').value) || 0
+    };
+    
+    if (GateWallManager.addGateWall(gateWall)) {
+        // Clear form
+        ['gwName', 'gwState', 'gwDistrict', 'gwMandal', 'gwHabitation', 'gwLat', 'gwLng', 'gwAlt'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+    }
+}
+
+function toggleDrawPipeline() {
+    if (PipelineManager.drawingMode) {
+        PipelineManager.finishDrawing();
+    } else {
+        PipelineManager.startDrawing();
+    }
+}
+
+function exportAllData() {
+    Core.exportData();
+}
+
+function importData(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            Core.importData(e.target.result);
+        };
+        reader.readAsText(file);
+    }
+}
+
+function updateDeviceList() {
+    const container = document.getElementById('deviceListContainer');
+    const devices = DeviceManager.getAllDevices();
+    
+    if (devices.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No devices added yet</div>';
+        return;
+    }
+    
+    container.innerHTML = devices.map(d => `
+        <div class="result-item" onclick="DeviceManager.showDetails('${d.id}')">
+            <span class="item-type type-${d.device}">${d.device.toUpperCase()}</span>
+            <b>${d.name}</b><br>
+            <small>${d.id} • ${d.habitation || d.mandal || 'N/A'}</small>
+        </div>
+    `).join('');
+}
+
+function updateGateWallList() {
+    const container = document.getElementById('gateWallListContainer');
+    const gateWalls = GateWallManager.getAllGateWalls();
+    
+    if (gateWalls.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No gate walls added yet</div>';
+        return;
+    }
+    
+    container.innerHTML = gateWalls.map(gw => `
+        <div class="result-item" onclick="GateWallManager.showDetails('${gw.id}')">
+            <span class="item-type type-gatewall">${gw.type.toUpperCase()}</span>
+            <b>${gw.name}</b><br>
+            <small>${gw.id} • ${gw.habitation || gw.mandal || 'N/A'}</small>
+        </div>
+    `).join('');
+}
+
+function closeDetailsPanel() {
+    document.getElementById('detailsPanel').classList.remove('active');
+}
+    </script>
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([17.385, 78.486], 13);
+        let currentLayer;
+
+        const layers = {
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
+            street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
+            terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'),
+            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png')
+        };
+
+        function changeMapLayer(type) {
+            if (currentLayer) map.removeLayer(currentLayer);
+            currentLayer = layers[type];
+            currentLayer.addTo(map);
+            
+            document.querySelectorAll('.map-controls button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + type).classList.add('active');
+        }
+
+        changeMapLayer('satellite');
+
+        // Button Event Listeners
+        document.getElementById('deviceSettingsBtn').onclick = () => openModal('deviceModal');
+        document.getElementById('gateWallSettingsBtn').onclick = () => openModal('gateWallModal');
+        document.getElementById('searchBtn').onclick = toggleSearchPanel;
+
+        // Modal Functions
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        function switchTab(category, tab) {
+            const prefix = category === 'device' ? 'device' : 'gatewall';
+            document.querySelectorAll(`#${category === 'device' ? 'deviceModal' : 'gateWallModal'} .tab-btn`).forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll(`#${category === 'device' ? 'deviceModal' : 'gateWallModal'} .tab-content`).forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(`${prefix}-${tab}-tab`).classList.add('active');
+            
+            // Update lists when switching to list tabs
+            if (tab === 'list') {
+                if (category === 'device') {
+                    updateDeviceList();
+                } else {
+                    updateGateWallList();
+                }
+            }
+        }
+
+        function toggleSearchPanel() {
+            const panel = document.getElementById('searchPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Right-click to auto-fill coordinates
+        map.on('contextmenu', (e) => {
+            const lat = e.latlng.lat.toFixed(6);
+            const lng = e.latlng.lng.toFixed(6);
+            
+            // Fill device form if open
+            if (document.getElementById('deviceModal').classList.contains('active')) {
+                document.getElementById('deviceLat').value = lat;
+                document.getElementById('deviceLng').value = lng;
+            }
+            
+            // Fill gate wall form if open
+            if (document.getElementById('gateWallModal').classList.contains('active')) {
+                document.getElementById('gwLat').value = lat;
+                document.getElementById('gwLng').value = lng;
+            }
+        });
+
+        // Close modals on outside click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeModal(modal.id);
+                }
+            });
+        });
+
+        // Initialize systems
+        window.onload = () => {
+            Core.init();
+            DeviceManager.init();
+            GateWallManager.init();
+            PipelineManager.init();
+            HierarchySearch.init();
+        };
+    </script>
+
+
+
+    
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="core.js"></script>
+<script src="devices.js"></script>
+<script src="gatewalls.js"></script>
+<script src="pipelines.js"></script>
+<script src="hierarchy.js"></script>
+<script src="ui-functions.js"></script>
+</body>
+</html>
