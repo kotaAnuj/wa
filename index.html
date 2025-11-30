@@ -3,134 +3,279 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Person Tracker</title>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<title>ESP32 Person Follower</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;overflow:hidden}
-#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;align-items:center}
+body{font-family:'Courier New',monospace;background:#0a0a0a;color:#0f0;overflow:hidden}
+#container{display:flex;height:100vh}
+#left{flex:1;display:flex;flex-direction:column;padding:20px;overflow-y:auto}
+#right{flex:2;display:flex;justify-content:center;align-items:center;background:#1a1a1a}
+.panel{background:#111;border:2px solid #0f0;padding:15px;margin-bottom:15px;border-radius:8px}
+.panel h3{color:#0ff;margin-bottom:10px;font-size:16px}
+input,button{font-family:inherit;font-size:14px;padding:10px;margin:5px 0;width:100%;border-radius:5px;border:1px solid #0f0}
+input{background:#000;color:#0f0}
+button{background:#0a0;color:#000;font-weight:bold;cursor:pointer;border:2px solid #0f0}
+button:hover{background:#0f0}
+button:disabled{opacity:0.3;cursor:not-allowed}
+.status{display:flex;justify-content:space-between;margin:3px 0;font-size:13px}
+.ok{color:#0f0}
+.err{color:#f00}
+.warn{color:#fa0}
 #video{display:none}
-#canvas{max-width:100%;max-height:100vh;border:2px solid #16213e}
-#controls{position:absolute;top:20px;left:20px;z-index:10}
-button{background:#0f3460;color:#fff;border:none;padding:12px 24px;margin:5px;cursor:pointer;border-radius:5px;font-size:16px}
-button:hover{background:#16213e}
-#status{position:absolute;top:20px;right:20px;background:rgba(0,0,0,0.7);padding:15px;border-radius:5px;font-size:14px}
-#command{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(15,52,96,0.9);padding:20px 40px;border-radius:10px;font-size:32px;font-weight:bold;color:#00ff88;min-width:200px;text-align:center;box-shadow:0 0 20px rgba(0,255,136,0.5)}
-.path{stroke:#00ff88;stroke-width:3;fill:none;opacity:0.8}
-.point{fill:#ff006e;r:4}
+canvas{border:3px solid #0f0;border-radius:8px;max-width:100%;max-height:90vh;box-shadow:0 0 30px rgba(0,255,0,0.4)}
+#command{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,200,0,0.95);color:#000;padding:20px 40px;border-radius:15px;font-size:40px;font-weight:bold;border:3px solid #0f0;box-shadow:0 0 40px rgba(0,255,0,0.8);z-index:100}
+.log{max-height:150px;overflow-y:auto;background:#000;padding:8px;border:1px solid #0a0;border-radius:4px;font-size:11px;margin-top:10px}
+.log div{margin:2px 0}
 </style>
 </head>
 <body>
 <div id="container">
-<video id="video" playsinline></video>
-<canvas id="canvas"></canvas>
-<div id="controls">
-<button onclick="startTracking()">Start</button>
-<button onclick="stopTracking()">Stop</button>
+<div id="left">
+<div class="panel">
+<h3>🤖 ESP32 CONNECTION</h3>
+<input id="espIP" placeholder="ESP32 IP (e.g., 192.168.1.100)" value="192.168.43.104">
+<button onclick="connectESP()">Connect to ESP32</button>
+<button onclick="testConnection()">Test Connection</button>
+<div class="status">Status: <span id="espStatus" class="warn">Not Connected</span></div>
+<div class="status">Last Ping: <span id="lastPing">-</span>ms</div>
+</div>
+
+<div class="panel">
+<h3>📹 CAMERA & TRACKING</h3>
+<button id="camBtn" onclick="startCamera()">Start Camera</button>
+<button onclick="toggleTracking()" id="trackBtn" disabled>Start Tracking</button>
 <button onclick="clearPath()">Clear Path</button>
+<div class="status">Camera: <span id="camStatus" class="warn">Off</span></div>
+<div class="status">Pose: <span id="poseStatus" class="warn">Waiting</span></div>
+<div class="status">FPS: <span id="fps">0</span></div>
 </div>
-<div id="status">
-<div>Status: <span id="trackStatus">Ready</span></div>
-<div>FPS: <span id="fps">0</span></div>
+
+<div class="panel">
+<h3>⚙️ CONTROL SETTINGS</h3>
+<label>Drive Speed: <input type="range" id="driveSpeed" min="30" max="100" value="60" oninput="this.nextElementSibling.textContent=this.value"><span>60</span>%</label>
+<label>Steer Speed: <input type="range" id="steerSpeed" min="30" max="100" value="70" oninput="this.nextElementSibling.textContent=this.value"><span>70</span>%</label>
+<label>Movement Threshold: <input type="range" id="threshold" min="20" max="100" value="50" oninput="this.nextElementSibling.textContent=this.value"><span>50</span>px</label>
+<label>Update Rate: <input type="range" id="updateRate" min="50" max="500" value="150" oninput="this.nextElementSibling.textContent=this.value"><span>150</span>ms</label>
 </div>
+
+<div class="panel">
+<h3>📊 LIVE DATA</h3>
+<div class="status">Commands Sent: <span id="cmdCount">0</span></div>
+<div class="status">ESP Distance: <span id="espDist">-</span>cm</div>
+<div class="status">Current Cmd: <span id="currentCmd">-</span></div>
+<div class="log" id="logBox"></div>
+</div>
+</div>
+
+<div id="right">
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
 <div id="command">READY</div>
+</div>
 </div>
 
 <script>
-let video,canvas,ctx,detector,isTracking=false,path=[],lastPos=null,frameCount=0,lastTime=Date.now();
-const THRESHOLD=40,COMMAND_DELAY=500;
-let lastCommand='READY',lastCommandTime=0;
+let video,canvas,ctx,pose,camera,isTracking=false,espIP='',espConnected=false;
+let path=[],lastPos=null,frameCount=0,lastTime=Date.now(),cmdCount=0;
+let lastCommand='STOP',lastCommandTime=0,lastESPSend=0;
+
+function log(msg,type='ok'){
+const div=document.createElement('div');
+div.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
+div.style.color=type==='err'?'#f00':type==='warn'?'#fa0':'#0f0';
+const box=document.getElementById('logBox');
+box.insertBefore(div,box.firstChild);
+if(box.children.length>50)box.removeChild(box.lastChild);
+}
+
+function updateStatus(id,text,cls){
+const el=document.getElementById(id);
+el.textContent=text;
+el.className=cls;
+}
+
+async function connectESP(){
+espIP=document.getElementById('espIP').value.trim();
+if(!espIP){
+alert('Enter ESP32 IP address!');
+return;
+}
+log('Connecting to ESP32: '+espIP,'warn');
+try{
+const start=Date.now();
+const res=await fetch(`http://${espIP}/status`,{timeout:3000});
+const data=await res.json();
+const ping=Date.now()-start;
+document.getElementById('lastPing').textContent=ping;
+espConnected=true;
+updateStatus('espStatus','Connected','ok');
+log(`Connected! Ping: ${ping}ms`,'ok');
+log(`ESP Data: Drive=${data.drive} Steer=${data.steer} Dist=${data.distance}cm`,'ok');
+}catch(e){
+espConnected=false;
+updateStatus('espStatus','Connection Failed','err');
+log('Connection failed: '+e.message,'err');
+alert('Failed to connect to ESP32!\nCheck:\n1. IP address correct?\n2. ESP32 powered on?\n3. Same WiFi network?');
+}
+}
+
+async function testConnection(){
+if(!espIP){
+alert('Connect to ESP32 first!');
+return;
+}
+log('Testing ESP32...','warn');
+try{
+await fetch(`http://${espIP}/test?drive=40&steer=0`);
+await sleep(800);
+await fetch(`http://${espIP}/test?drive=0&steer=50`);
+await sleep(800);
+await fetch(`http://${espIP}/test?drive=0&steer=-50`);
+await sleep(800);
+await fetch(`http://${espIP}/stop`);
+log('Test complete!','ok');
+}catch(e){
+log('Test failed: '+e.message,'err');
+}
+}
+
+async function sendESPCommand(drive,steer){
+if(!espConnected||!espIP)return;
+const now=Date.now();
+if(now-lastESPSend<parseInt(document.getElementById('updateRate').value))return;
+lastESPSend=now;
+try{
+const url=`http://${espIP}/control?drive=${drive}&steer=${steer}`;
+fetch(url,{method:'GET',mode:'no-cors'}).catch(()=>{});
+cmdCount++;
+document.getElementById('cmdCount').textContent=cmdCount;
+}catch(e){
+log('Send error: '+e.message,'err');
+}
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
 async function init(){
 video=document.getElementById('video');
 canvas=document.getElementById('canvas');
 ctx=canvas.getContext('2d');
+pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
+pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+pose.onResults(onResults);
+updateStatus('poseStatus','Model Loaded','ok');
+log('Pose detection ready','ok');
+}
+
+async function startCamera(){
 try{
-const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
+updateStatus('camStatus','Starting...','warn');
+const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
 video.srcObject=stream;
+await new Promise(r=>{video.onloadedmetadata=()=>{canvas.width=video.videoWidth;canvas.height=video.videoHeight;r()}});
 await video.play();
-canvas.width=video.videoWidth;
-canvas.height=video.videoHeight;
-const model=poseDetection.SupportedModels.BlazePose;
-detector=await poseDetection.createDetector(model,{runtime:'mediapipe',modelType:'lite',solutionPath:'https://cdn.jsdelivr.net/npm/@mediapipe/pose'});
-document.getElementById('trackStatus').textContent='Ready';
+updateStatus('camStatus','Active','ok');
+camera=new Camera(video,{onFrame:async()=>{if(pose&&camera)await pose.send({image:video})},width:640,height:480});
+await camera.start();
+document.getElementById('camBtn').disabled=true;
+document.getElementById('trackBtn').disabled=false;
+log('Camera started','ok');
 }catch(e){
-console.error('Init error:',e);
-document.getElementById('trackStatus').textContent='Error: '+e.message;
+updateStatus('camStatus','Failed: '+e.name,'err');
+log('Camera error: '+e.message,'err');
+alert('Camera Error!\n1. Allow camera permission\n2. Check camera working\n3. Refresh page');
 }
 }
 
-async function startTracking(){
-if(!detector){await init()}
-isTracking=true;
-document.getElementById('trackStatus').textContent='Tracking...';
-detectPose();
-}
-
-function stopTracking(){
+function toggleTracking(){
+isTracking=!isTracking;
+const btn=document.getElementById('trackBtn');
+if(isTracking){
+if(!espConnected){
+alert('Connect to ESP32 first!');
 isTracking=false;
-document.getElementById('trackStatus').textContent='Stopped';
+return;
+}
+btn.textContent='Stop Tracking';
+btn.style.background='#f00';
+updateStatus('poseStatus','TRACKING ACTIVE','ok');
+log('🎯 Tracking started - Following person','ok');
+}else{
+btn.textContent='Start Tracking';
+btn.style.background='#0a0';
+updateStatus('poseStatus','Tracking Stopped','warn');
+sendESPCommand(0,0);
+log('Tracking stopped','warn');
+}
 }
 
-function clearPath(){
-path=[];
-lastPos=null;
-lastCommand='READY';
-document.getElementById('command').textContent='READY';
-}
-
-async function detectPose(){
-if(!isTracking)return;
-try{
-const poses=await detector.estimatePoses(video);
-ctx.drawImage(video,0,0,canvas.width,canvas.height);
-if(poses.length>0){
-const pose=poses[0];
-const nose=pose.keypoints.find(k=>k.name==='nose');
-const leftHip=pose.keypoints.find(k=>k.name==='left_hip');
-const rightHip=pose.keypoints.find(k=>k.name==='right_hip');
-if(nose&&leftHip&&rightHip&&nose.score>0.3){
-const centerX=(leftHip.x+rightHip.x)/2;
-const centerY=(leftHip.y+rightHip.y)/2;
+function onResults(results){
+if(!canvas||!ctx)return;
+ctx.save();
+ctx.clearRect(0,0,canvas.width,canvas.height);
+ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+if(results.poseLandmarks){
+const landmarks=results.poseLandmarks;
+const leftHip=landmarks[23];
+const rightHip=landmarks[24];
+if(leftHip&&rightHip){
+const centerX=(leftHip.x+rightHip.x)/2*canvas.width;
+const centerY=(leftHip.y+rightHip.y)/2*canvas.height;
 const currentPos={x:centerX,y:centerY};
-if(lastPos){
+if(lastPos&&isTracking){
 path.push({x1:lastPos.x,y1:lastPos.y,x2:currentPos.x,y2:currentPos.y});
-if(path.length>100)path.shift();
+if(path.length>60)path.shift();
 const dx=currentPos.x-lastPos.x;
 const dy=currentPos.y-lastPos.y;
+const threshold=parseInt(document.getElementById('threshold').value);
 const now=Date.now();
-if(now-lastCommandTime>COMMAND_DELAY){
+if(now-lastCommandTime>parseInt(document.getElementById('updateRate').value)){
 let cmd='';
-if(Math.abs(dx)>THRESHOLD||Math.abs(dy)>THRESHOLD){
+let drive=0,steer=0;
+const driveSpd=parseInt(document.getElementById('driveSpeed').value);
+const steerSpd=parseInt(document.getElementById('steerSpeed').value);
+if(Math.abs(dx)>threshold||Math.abs(dy)>threshold){
 if(Math.abs(dx)>Math.abs(dy)){
 cmd=dx>0?'RIGHT':'LEFT';
+steer=dx>0?steerSpd:-steerSpd;
+drive=driveSpd/2;
 }else{
 cmd=dy>0?'FRONT':'BACK';
+drive=dy>0?driveSpd:-driveSpd;
+steer=0;
 }
-if(cmd&&cmd!==lastCommand){
+}else{
+cmd='STOP';
+drive=0;
+steer=0;
+}
+if(cmd!==lastCommand||cmd!=='STOP'){
 lastCommand=cmd;
 lastCommandTime=now;
 document.getElementById('command').textContent=cmd;
-}
+document.getElementById('currentCmd').textContent=`${cmd} (D:${drive} S:${steer})`;
+sendESPCommand(drive,steer);
+log(`→ ${cmd} | Drive:${drive} Steer:${steer}`);
 }
 }
 }
 lastPos=currentPos;
 drawPath();
 ctx.beginPath();
-ctx.arc(centerX,centerY,8,0,2*Math.PI);
-ctx.fillStyle='#ff006e';
+ctx.arc(centerX,centerY,12,0,2*Math.PI);
+ctx.fillStyle='#0f0';
 ctx.fill();
 ctx.strokeStyle='#fff';
-ctx.lineWidth=2;
+ctx.lineWidth=3;
 ctx.stroke();
-drawSkeleton(pose);
 }
+drawConnectors(ctx,landmarks,POSE_CONNECTIONS,{color:'rgba(0,255,0,0.4)',lineWidth:2});
+drawLandmarks(ctx,landmarks,{color:'rgba(0,255,255,0.6)',lineWidth:1,radius:4});
 }
+ctx.restore();
 frameCount++;
 const now=Date.now();
 if(now-lastTime>1000){
@@ -138,45 +283,47 @@ document.getElementById('fps').textContent=frameCount;
 frameCount=0;
 lastTime=now;
 }
-}catch(e){
-console.error('Detection error:',e);
-}
-requestAnimationFrame(detectPose);
 }
 
 function drawPath(){
-if(path.length<2)return;
-ctx.strokeStyle='#00ff88';
-ctx.lineWidth=3;
+if(path.length<1)return;
+ctx.strokeStyle='#0f0';
+ctx.lineWidth=4;
+ctx.shadowColor='#0f0';
+ctx.shadowBlur=15;
 ctx.beginPath();
-path.forEach((segment,i)=>{
-if(i===0)ctx.moveTo(segment.x1,segment.y1);
-ctx.lineTo(segment.x2,segment.y2);
+path.forEach((s,i)=>{
+if(i===0)ctx.moveTo(s.x1,s.y1);
+ctx.lineTo(s.x2,s.y2);
 });
 ctx.stroke();
-path.forEach(segment=>{
+ctx.shadowBlur=0;
+path.forEach((s,i)=>{
 ctx.beginPath();
-ctx.arc(segment.x2,segment.y2,4,0,2*Math.PI);
-ctx.fillStyle='#00ff88';
+ctx.arc(s.x2,s.y2,6,0,2*Math.PI);
+ctx.fillStyle=`rgba(0,255,0,${0.3+i/path.length*0.7})`;
 ctx.fill();
 });
 }
 
-function drawSkeleton(pose){
-const connections=[[11,13],[13,15],[12,14],[14,16],[11,12],[5,11],[6,12],[5,6],[5,7],[7,9],[6,8],[8,10],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
-ctx.strokeStyle='rgba(255,255,255,0.5)';
-ctx.lineWidth=2;
-connections.forEach(([i,j])=>{
-const kp1=pose.keypoints[i];
-const kp2=pose.keypoints[j];
-if(kp1.score>0.3&&kp2.score>0.3){
-ctx.beginPath();
-ctx.moveTo(kp1.x,kp1.y);
-ctx.lineTo(kp2.x,kp2.y);
-ctx.stroke();
+function clearPath(){
+path=[];
+lastPos=null;
+lastCommand='STOP';
+document.getElementById('command').textContent='READY';
+sendESPCommand(0,0);
+log('Path cleared','warn');
 }
-});
+
+setInterval(async()=>{
+if(espConnected&&espIP){
+try{
+const res=await fetch(`http://${espIP}/data`);
+const data=await res.json();
+document.getElementById('espDist').textContent=data.distance.toFixed(1);
+}catch(e){}
 }
+},1000);
 
 window.onload=init;
 </script>
