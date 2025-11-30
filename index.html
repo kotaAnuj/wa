@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Person Follower Bot - UPGRADED</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:Arial,sans-serif;background:#000;color:#fff;overflow:hidden;touch-action:none}
+#app{display:flex;flex-direction:column;height:100vh}
+#top{padding:10px;background:#111;border-bottom:2px solid #0f0}
+#top h2{font-size:18px;margin-bottom:8px;color:#0f0}
+.row{display:flex;gap:8px;margin:5px 0;align-items:center}
+input{flex:1;padding:10px;font-size:16px;background:#222;color:#0f0;border:1px solid #0a0;border-radius:4px}
+button{padding:10px 15px;font-size:14px;font-weight:bold;background:#0a0;color:#000;border:none;border-radius:4px;cursor:pointer}
+button:active{background:#0f0}
+button:disabled{opacity:0.3}
+.info{font-size:13px;color:#0f0;margin:3px 0}
+#videoBox{flex:1;position:relative;display:flex;justify-content:center;align-items:center;background:#000}
+video{display:none}
+canvas{max-width:100%;max-height:100%;border:2px solid #0a0}
+#cmdBig{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,200,0,0.95);color:#000;padding:30px 50px;border-radius:15px;font-size:48px;font-weight:bold;border:4px solid #0f0;box-shadow:0 0 40px #0f0;pointer-events:none;z-index:10}
+#status{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.8);padding:10px;border-radius:6px;font-size:12px;border:1px solid #0a0}
+#status div{margin:3px 0}
+#cmdPanel{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(0,0,0,0.9);padding:15px;border-radius:8px;border:2px solid #0a0;max-height:200px;overflow-y:auto}
+#cmdPanel h3{font-size:16px;color:#0f0;margin-bottom:8px}
+.cmdLog{font-size:13px;margin:4px 0;padding:6px;background:#001a00;border-radius:4px;border-left:3px solid #0a0}
+.cmdLog.active{background:#0a0;color:#000;font-weight:bold;animation:pulse 0.5s}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.st{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.st.on{background:#0f0}
+.st.off{background:#f00}
+.debug-info{font-size:11px;color:#aaa;margin:2px 0}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="top">
+<h2>🤖 Person Following Bot - UPGRADED</h2>
+<div class="row">
+<input id="espIP" type="text" placeholder="ESP32 IP (192.168.x.x)" value="192.168.43.104">
+<button onclick="connectESP()" id="connBtn">Connect</button>
+</div>
+<div class="row">
+<button onclick="startCamera()" id="camBtn">Start Camera</button>
+<button onclick="toggleTracking()" id="trkBtn" disabled>Start Tracking</button>
+<button onclick="stopAll()" class="btn-stop" style="background:#a00">STOP ALL</button>
+</div>
+<div class="info">
+<span class="st" id="espSt"></span>ESP: <span id="espTxt">Disconnected</span> | 
+<span class="st" id="camSt"></span>Cam: <span id="camTxt">Off</span> | 
+<span class="st" id="trkSt"></span>Track: <span id="trkTxt">Off</span> | 
+FPS: <span id="fps">0</span>
+</div>
+</div>
+
+<div id="videoBox">
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+<div id="cmdBig">READY</div>
+<div id="status">
+<div><b>Person Detection:</b> <span id="personSt">Waiting...</span></div>
+<div><b>Commands Sent:</b> <span id="cmdCnt">0</span></div>
+<div><b>Distance:</b> <span id="dist">-</span> cm</div>
+<div class="debug-info" id="debugInfo">Debug: Ready</div>
+</div>
+<div id="cmdPanel">
+<h3>📡 Command Stream (Live)</h3>
+<div id="cmdList"></div>
+</div>
+</div>
+</div>
+
+<script>
+let video, canvas, ctx, pose, camera, isTracking = false, espIP = '', espConnected = false;
+let path = [], lastPos = null, frameCount = 0, lastTime = Date.now();
+let commandCount = 0, lastCommand = 'READY', lastCommandTime = 0, lastSendTime = 0;
+let cameraActive = false, poseReady = false;
+let consecutiveValidPoses = 0;
+
+const config = {
+  driveSpeed: 60,
+  steerSpeed: 70,
+  threshold: 45,
+  updateRate: 120,
+  minMovement: 30,
+  minPoseConfidence: 0.6,
+  minTrackingConfidence: 0.6
+};
+
+function log(msg, isCmd = false) {
+  const list = document.getElementById('cmdList');
+  const div = document.createElement('div');
+  div.className = 'cmdLog' + (isCmd ? ' active' : '');
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  list.insertBefore(div, list.firstChild);
+  if (list.children.length > 20) list.removeChild(list.lastChild);
+  setTimeout(() => div.classList.remove('active'), 500);
+}
+
+function updateDebugInfo(msg) {
+  document.getElementById('debugInfo').textContent = `Debug: ${msg}`;
+}
+
+function updateUI() {
+  document.getElementById('espSt').className = 'st ' + (espConnected ? 'on' : 'off');
+  document.getElementById('camSt').className = 'st ' + (cameraActive ? 'on' : 'off');
+  document.getElementById('trkSt').className = 'st ' + (isTracking ? 'on' : 'off');
+  document.getElementById('espTxt').textContent = espConnected ? 'Connected' : 'Disconnected';
+  document.getElementById('camTxt').textContent = cameraActive ? 'Active' : 'Off';
+  document.getElementById('trkTxt').textContent = isTracking ? 'TRACKING' : 'Off';
+}
+
+function validatePose(landmarks) {
+  if (!landmarks) return false;
+  
+  const requiredLandmarks = [0, 11, 12, 23, 24]; // nose, shoulders, hips
+  let visibleCount = 0;
+  let totalConfidence = 0;
+  
+  for (const index of requiredLandmarks) {
+    if (landmarks[index] && landmarks[index].visibility > config.minPoseConfidence) {
+      visibleCount++;
+      totalConfidence += landmarks[index].visibility;
+    }
+  }
+  
+  // At least 4 key landmarks should be visible with good confidence
+  if (visibleCount < 4) {
+    updateDebugInfo(`Insufficient landmarks: ${visibleCount}/5`);
+    return false;
+  }
+  
+  const avgConfidence = totalConfidence / visibleCount;
+  if (avgConfidence < config.minPoseConfidence) {
+    updateDebugInfo(`Low avg confidence: ${avgConfidence.toFixed(2)}`);
+    return false;
+  }
+  
+  // Check if pose is reasonably upright (shoulders above hips)
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+  const leftHip = landmarks[23];
+  const rightHip = landmarks[24];
+  
+  if (leftShoulder && rightShoulder && leftHip && rightHip) {
+    const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const avgHipY = (leftHip.y + rightHip.y) / 2;
+    
+    // Shoulders should be above hips for upright person
+    if (avgShoulderY >= avgHipY) {
+      updateDebugInfo('Invalid pose: Shoulders below hips');
+      return false; // Person might be upside down or invalid
+    }
+    
+    // Check hip distance for reasonable person proportions
+    const hipDistance = Math.abs(leftHip.x - rightHip.x) * canvas.width;
+    if (hipDistance < 20 || hipDistance > 300) {
+      updateDebugInfo(`Unrealistic hip distance: ${Math.round(hipDistance)}px`);
+      return false;
+    }
+  }
+  
+  updateDebugInfo(`Valid pose: ${visibleCount} landmarks, conf: ${avgConfidence.toFixed(2)}`);
+  return true;
+}
+
+async function connectESP() {
+  espIP = document.getElementById('espIP').value.trim();
+  if (!espIP) {
+    alert('❌ Enter ESP32 IP address!');
+    return;
+  }
+  
+  document.getElementById('connBtn').disabled = true;
+  document.getElementById('connBtn').textContent = 'Connecting...';
+  
+  try {
+    const response = await fetch(`http://${espIP}/status`, { timeout: 3000 });
+    const data = await response.json();
+    espConnected = true;
+    updateUI();
+    log('✅ ESP32 Connected! Distance: ' + data.distance + 'cm');
+    document.getElementById('connBtn').textContent = 'Connected';
+    document.getElementById('dist').textContent = data.distance.toFixed(1);
+  } catch (err) {
+    espConnected = false;
+    updateUI();
+    log('❌ Connection Failed: ' + err.message);
+    alert('❌ Failed to connect!\n\n1. Check IP address\n2. ESP32 powered ON?\n3. Same WiFi network?');
+    document.getElementById('connBtn').disabled = false;
+    document.getElementById('connBtn').textContent = 'Retry';
+  }
+}
+
+async function sendCommand(drive, steer) {
+  if (!espConnected || !espIP) return false;
+  
+  const now = Date.now();
+  if (now - lastSendTime < config.updateRate) return false;
+  lastSendTime = now;
+  
+  try {
+    fetch(`http://${espIP}/control?drive=${drive}&steer=${steer}`, {
+      method: 'GET',
+      mode: 'no-cors'
+    }).catch(() => {});
+    
+    commandCount++;
+    document.getElementById('cmdCnt').textContent = commandCount;
+    return true;
+  } catch (err) {
+    log('❌ Send error: ' + err.message);
+    return false;
+  }
+}
+
+async function init() {
+  video = document.getElementById('video');
+  canvas = document.getElementById('canvas');
+  ctx = canvas.getContext('2d');
+  
+  pose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+  
+  pose.setOptions({
+    modelComplexity: 1, // Increased for better accuracy
+    smoothLandmarks: true,
+    minDetectionConfidence: config.minPoseConfidence,
+    minTrackingConfidence: config.minTrackingConfidence
+  });
+  
+  pose.onResults(onPoseResults);
+  poseReady = true;
+  log('✅ Pose detection model loaded');
+}
+
+async function startCamera() {
+  if (cameraActive) return;
+  
+  document.getElementById('camBtn').disabled = true;
+  document.getElementById('camBtn').textContent = 'Starting...';
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: 'user'
+      },
+      audio: false
+    });
+    
+    video.srcObject = stream;
+    
+    await new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        resolve();
+      };
+    });
+    
+    await video.play();
+    
+    camera = new Camera(video, {
+      onFrame: async () => {
+        if (pose && poseReady) {
+          await pose.send({ image: video });
+        }
+      },
+      width: 640,
+      height: 480
+    });
+    
+    await camera.start();
+    
+    cameraActive = true;
+    updateUI();
+    document.getElementById('camBtn').textContent = 'Camera ON';
+    document.getElementById('trkBtn').disabled = false;
+    log('✅ Camera started successfully');
+    
+  } catch (err) {
+    cameraActive = false;
+    updateUI();
+    log('❌ Camera error: ' + err.message);
+    alert('❌ Camera Error!\n\n1. Allow camera permission\n2. Check camera is working\n3. Refresh page and try again');
+    document.getElementById('camBtn').disabled = false;
+    document.getElementById('camBtn').textContent = 'Retry Camera';
+  }
+}
+
+function toggleTracking() {
+  if (!espConnected) {
+    alert('❌ Connect to ESP32 first!');
+    return;
+  }
+  
+  if (!cameraActive) {
+    alert('❌ Start camera first!');
+    return;
+  }
+  
+  isTracking = !isTracking;
+  
+  if (isTracking) {
+    document.getElementById('trkBtn').textContent = 'Stop Tracking';
+    document.getElementById('trkBtn').style.background = '#f00';
+    document.getElementById('cmdBig').textContent = 'TRACKING...';
+    consecutiveValidPoses = 0;
+    log('🎯 TRACKING STARTED - Bot will follow person');
+  } else {
+    document.getElementById('trkBtn').textContent = 'Start Tracking';
+    document.getElementById('trkBtn').style.background = '#0a0';
+    document.getElementById('cmdBig').textContent = 'STOPPED';
+    sendCommand(0, 0);
+    log('⏹️ Tracking stopped');
+  }
+  
+  updateUI();
+}
+
+function stopAll() {
+  isTracking = false;
+  sendCommand(0, 0);
+  document.getElementById('cmdBig').textContent = 'STOPPED';
+  document.getElementById('trkBtn').textContent = 'Start Tracking';
+  document.getElementById('trkBtn').style.background = '#0a0';
+  updateUI();
+  log('🛑 EMERGENCY STOP');
+}
+
+function onPoseResults(results) {
+  if (!canvas || !ctx) return;
+  
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+  
+  if (results.poseLandmarks) {
+    const landmarks = results.poseLandmarks;
+    
+    // Validate if this is actually a person
+    const isValidPose = validatePose(landmarks);
+    
+    if (!isValidPose) {
+      consecutiveValidPoses = Math.max(0, consecutiveValidPoses - 1);
+      
+      if (consecutiveValidPoses < 3) {
+        document.getElementById('personSt').textContent = '❌ Invalid pose - Not tracking';
+        document.getElementById('personSt').style.color = '#f00';
+        
+        if (isTracking && lastCommand !== 'NO PERSON') {
+          sendCommand(0, 0);
+          lastCommand = 'NO PERSON';
+          document.getElementById('cmdBig').textContent = 'NO PERSON';
+        }
+        
+        // Draw landmarks in red to indicate invalid pose
+        drawConnectors(ctx, landmarks, POSE_CONNECTIONS, {
+          color: 'rgba(255,0,0,0.3)',
+          lineWidth: 2
+        });
+        drawLandmarks(ctx, landmarks, {
+          color: 'rgba(255,0,0,0.4)',
+          lineWidth: 1,
+          radius: 3
+        });
+        
+        ctx.restore();
+        updateFrameRate();
+        return;
+      }
+    } else {
+      consecutiveValidPoses = Math.min(10, consecutiveValidPoses + 1);
+    }
+    
+    // Valid person detected - proceed with tracking
+    const leftHip = landmarks[23];
+    const rightHip = landmarks[24];
+    const nose = landmarks[0];
+    
+    if (leftHip && rightHip && nose) {
+      const centerX = (leftHip.x + rightHip.x) / 2 * canvas.width;
+      const centerY = (leftHip.y + rightHip.y) / 2 * canvas.height;
+      const currentPos = { x: centerX, y: centerY };
+      
+      document.getElementById('personSt').textContent = `✅ Person Detected at (${Math.round(centerX)},${Math.round(centerY)}) [${consecutiveValidPoses}/3]`;
+      document.getElementById('personSt').style.color = '#0f0';
+      
+      if (isTracking && consecutiveValidPoses >= 3) {
+        const screenCenterX = canvas.width / 2;
+        const screenCenterY = canvas.height / 2;
+        
+        const deltaX = currentPos.x - screenCenterX;
+        const deltaY = currentPos.y - screenCenterY;
+        
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        
+        const xRatio = deltaX / (canvas.width / 2); // Normalized -1 to 1
+        const yRatio = deltaY / (canvas.height / 2); // Normalized -1 to 1
+        
+        path.push({ x1: screenCenterX, y1: screenCenterY, x2: currentPos.x, y2: currentPos.y });
+        if (path.length > 80) path.shift();
+        
+        const now = Date.now();
+        if (now - lastCommandTime > config.updateRate) {
+          
+          let command = 'STOP';
+          let drive = 0, steer = 0;
+          
+          const xThreshold = canvas.width * 0.15;  // 15% from center
+          const yThreshold = canvas.height * 0.20; // 20% from center
+          
+          // Calculate movement priorities
+          const absXRatio = Math.abs(xRatio);
+          const absYRatio = Math.abs(yRatio);
+          
+          // Only move if significantly off-center
+          if (absXRatio > 0.3 || absYRatio > 0.3) {
+            
+            if (absXRatio > absYRatio) {
+              // Horizontal movement takes priority
+              if (deltaX > xThreshold) {
+                command = 'RIGHT';
+                steer = Math.min(100, Math.round(absXRatio * config.steerSpeed));
+                drive = Math.round(config.driveSpeed * 0.7); // Slower when turning
+              } else if (deltaX < -xThreshold) {
+                command = 'LEFT';
+                steer = -Math.min(100, Math.round(absXRatio * config.steerSpeed));
+                drive = Math.round(config.driveSpeed * 0.7);
+              }
+            } else {
+              // Vertical movement takes priority
+              if (deltaY > yThreshold) {
+                command = 'BACK'; // Person is lower in frame - move back
+                drive = -Math.min(100, Math.round(absYRatio * config.driveSpeed));
+              } else if (deltaY < -yThreshold) {
+                command = 'FRONT'; // Person is higher in frame - move forward
+                drive = Math.min(100, Math.round(absYRatio * config.driveSpeed));
+              }
+            }
+            
+            // Send command only if it's different from last command or enough time has passed
+            if (command !== lastCommand || now - lastCommandTime > 500) {
+              const sent = sendCommand(drive, steer);
+              if (sent) {
+                lastCommand = command;
+                lastCommandTime = now;
+                document.getElementById('cmdBig').textContent = command;
+                log(`➤ ${command} | D:${drive} S:${steer} | Dist:${Math.round(distance)}px | X:${xRatio.toFixed(2)} Y:${yRatio.toFixed(2)}`, true);
+              }
+            }
+            
+          } else {
+            // Person is centered - stop
+            if (lastCommand !== 'CENTERED') {
+              sendCommand(0, 0);
+              lastCommand = 'CENTERED';
+              document.getElementById('cmdBig').textContent = 'CENTERED';
+              log('✓ Person centered - Stopping | Dist:' + Math.round(distance) + 'px', true);
+            }
+          }
+        }
+      }
+      
+      lastPos = currentPos;
+      
+      // Draw tracking visualization
+      drawTrackingVisualization(currentPos);
+      
+    } else {
+      document.getElementById('personSt').textContent = '❌ Missing key landmarks';
+      document.getElementById('personSt').style.color = '#f00';
+    }
+    
+    // Draw pose landmarks in green for valid detection
+    drawConnectors(ctx, landmarks, POSE_CONNECTIONS, {
+      color: 'rgba(0,255,0,0.3)',
+      lineWidth: 2
+    });
+    drawLandmarks(ctx, landmarks, {
+      color: 'rgba(0,255,255,0.4)',
+      lineWidth: 1,
+      radius: 3
+    });
+  } else {
+    consecutiveValidPoses = 0;
+    document.getElementById('personSt').textContent = '⚠️ Waiting for person...';
+    document.getElementById('personSt').style.color = '#fa0';
+    
+    if (isTracking && lastCommand !== 'NO PERSON') {
+      sendCommand(0, 0);
+      lastCommand = 'NO PERSON';
+      document.getElementById('cmdBig').textContent = 'NO PERSON';
+    }
+  }
+  
+  ctx.restore();
+  updateFrameRate();
+}
+
+function drawTrackingVisualization(currentPos) {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  
+  // Draw center crosshair
+  ctx.strokeStyle = '#f00';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(0, screenCenterY);
+  ctx.lineTo(canvas.width, screenCenterY);
+  ctx.moveTo(screenCenterX, 0);
+  ctx.lineTo(screenCenterX, canvas.height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Draw center point
+  ctx.beginPath();
+  ctx.arc(screenCenterX, screenCenterY, 10, 0, 2 * Math.PI);
+  ctx.strokeStyle = '#f00';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  // Draw line to person
+  ctx.strokeStyle = '#ff0';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(screenCenterX, screenCenterY);
+  ctx.lineTo(currentPos.x, currentPos.y);
+  ctx.stroke();
+  
+  // Draw path history
+  drawPath();
+  
+  // Draw person marker
+  ctx.beginPath();
+  ctx.arc(currentPos.x, currentPos.y, 20, 0, 2 * Math.PI);
+  ctx.fillStyle = 'rgba(0,255,0,0.5)';
+  ctx.fill();
+  ctx.strokeStyle = '#0f0';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  
+  // Draw person label
+  ctx.font = 'bold 20px Arial';
+  ctx.fillStyle = '#0f0';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.strokeText('PERSON', currentPos.x - 45, currentPos.y - 30);
+  ctx.fillText('PERSON', currentPos.x - 45, currentPos.y - 30);
+  
+  // Draw position info
+  const deltaX = Math.round(currentPos.x - screenCenterX);
+  const deltaY = Math.round(currentPos.y - screenCenterY);
+  const dist = Math.round(Math.sqrt(deltaX * deltaX + deltaY * deltaY));
+  
+  ctx.font = '12px Arial';
+  ctx.fillStyle = '#ff0';
+  ctx.fillText(`ΔX:${deltaX} ΔY:${deltaY}`, currentPos.x - 40, currentPos.y + 40);
+  ctx.fillText(`Dist:${dist}px`, currentPos.x - 40, currentPos.y + 55);
+}
+
+function drawPath() {
+  if (path.length < 2) return;
+  
+  ctx.strokeStyle = '#0f0';
+  ctx.lineWidth = 4;
+  ctx.shadowColor = '#0f0';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  
+  path.forEach((segment, i) => {
+    if (i === 0) ctx.moveTo(segment.x1, segment.y1);
+    ctx.lineTo(segment.x2, segment.y2);
+  });
+  
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  
+  path.forEach((segment, i) => {
+    const opacity = 0.3 + (i / path.length) * 0.7;
+    ctx.beginPath();
+    ctx.arc(segment.x2, segment.y2, 5, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(0,255,0,${opacity})`;
+    ctx.fill();
+  });
+}
+
+function updateFrameRate() {
+  frameCount++;
+  const now = Date.now();
+  if (now - lastTime > 1000) {
+    document.getElementById('fps').textContent = frameCount;
+    frameCount = 0;
+    lastTime = now;
+  }
+}
+
+setInterval(async () => {
+  if (espConnected && espIP) {
+    try {
+      const response = await fetch(`http://${espIP}/data`);
+      const data = await response.json();
+      document.getElementById('dist').textContent = data.distance.toFixed(1);
+    } catch (err) {
+      // Silent fail for distance updates
+    }
+  }
+}, 1000);
+
+window.onload = init;
+</script>
+</body>
+</html>
