@@ -202,21 +202,53 @@
 
         // Camera setup
         startBtn.addEventListener('click', async () => {
+            console.log('Start button clicked');
             try {
+                // Check if getUserMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    alert('Your browser does not support camera access. Please use Chrome, Firefox, or Edge.');
+                    return;
+                }
+
+                console.log('Requesting camera access...');
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 480 } 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    } 
                 });
+                
+                console.log('Camera access granted');
                 video.srcObject = stream;
-                video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    trackBtn.disabled = false;
-                    selectBtn.disabled = false;
-                    clearBtn.disabled = false;
-                    startBtn.disabled = true;
+                
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded');
+                        resolve();
+                    };
                 });
+                
+                // Play the video
+                await video.play();
+                console.log('Video playing');
+                
+                // Set canvas size
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Enable buttons
+                trackBtn.disabled = false;
+                selectBtn.disabled = false;
+                clearBtn.disabled = false;
+                startBtn.disabled = true;
+                startBtn.textContent = 'Camera Active ✓';
+                
+                console.log('Setup complete');
             } catch (err) {
-                alert('Camera access denied: ' + err.message);
+                console.error('Camera error:', err);
+                alert('Camera Error: ' + err.message + '\n\nPlease ensure:\n1. You granted camera permission\n2. No other app is using the camera\n3. You are using HTTPS or localhost');
             }
         });
 
