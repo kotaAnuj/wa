@@ -9,288 +9,300 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;background:#0a0a0a;color:#0f0;overflow:hidden}
-#container{display:flex;height:100vh}
-#left{flex:1;display:flex;flex-direction:column;padding:20px;overflow-y:auto}
-#right{flex:2;display:flex;justify-content:center;align-items:center;background:#1a1a1a}
-.panel{background:#111;border:2px solid #0f0;padding:15px;margin-bottom:15px;border-radius:8px}
-.panel h3{color:#0ff;margin-bottom:10px;font-size:16px}
-input,button{font-family:inherit;font-size:14px;padding:10px;margin:5px 0;width:100%;border-radius:5px;border:1px solid #0f0}
-input{background:#000;color:#0f0}
-button{background:#0a0;color:#000;font-weight:bold;cursor:pointer;border:2px solid #0f0}
+body{font-family:monospace;background:#0a0a0a;color:#0f0;overflow:hidden}
+#main{display:flex;height:100vh}
+#left{width:320px;padding:15px;overflow-y:auto;background:#111}
+#center{flex:1;display:flex;justify-content:center;align-items:center;position:relative}
+.box{background:#000;border:2px solid #0a0;padding:12px;margin-bottom:12px;border-radius:6px}
+h3{color:#0ff;font-size:14px;margin-bottom:8px}
+input,button{font:inherit;padding:8px;margin:4px 0;width:100%;border-radius:4px;border:1px solid #0a0}
+input{background:#000;color:#0f0;font-size:12px}
+button{background:#0a0;color:#000;font-weight:bold;cursor:pointer}
 button:hover{background:#0f0}
-button:disabled{opacity:0.3;cursor:not-allowed}
-.status{display:flex;justify-content:space-between;margin:3px 0;font-size:13px}
+button:disabled{opacity:0.3}
+.btn-stop{background:#a00!important}
+.btn-stop:hover{background:#f00!important}
+.s{display:flex;justify-content:space-between;font-size:11px;margin:3px 0}
 .ok{color:#0f0}
 .err{color:#f00}
 .warn{color:#fa0}
 #video{display:none}
-canvas{border:3px solid #0f0;border-radius:8px;max-width:100%;max-height:90vh;box-shadow:0 0 30px rgba(0,255,0,0.4)}
-#command{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,200,0,0.95);color:#000;padding:20px 40px;border-radius:15px;font-size:40px;font-weight:bold;border:3px solid #0f0;box-shadow:0 0 40px rgba(0,255,0,0.8);z-index:100}
-.log{max-height:150px;overflow-y:auto;background:#000;padding:8px;border:1px solid #0a0;border-radius:4px;font-size:11px;margin-top:10px}
-.log div{margin:2px 0}
+canvas{border:3px solid #0a0;max-width:100%;max-height:85vh;box-shadow:0 0 20px rgba(0,255,0,0.3)}
+#cmd{position:absolute;bottom:20px;background:rgba(0,200,0,0.95);color:#000;padding:15px 30px;border-radius:10px;font-size:32px;font-weight:bold;border:3px solid #0f0;box-shadow:0 0 30px #0f0}
+#remote{position:absolute;top:20px;right:20px;background:rgba(0,0,0,0.9);border:2px solid #0a0;padding:15px;border-radius:8px;min-width:200px}
+#remote h3{text-align:center;margin-bottom:10px}
+.rBtn{width:60px;height:60px;margin:3px;font-size:20px;border-radius:8px}
+.rRow{display:flex;justify-content:center}
+#cmdVis{margin-top:10px;padding:10px;background:#000;border:1px solid #0a0;border-radius:4px;text-align:center}
+.cmdItem{font-size:11px;margin:2px 0;padding:3px;background:#001a00;border-radius:3px}
+.cmdActive{background:#0a0;color:#000;font-weight:bold}
+label{font-size:11px;display:block;margin:5px 0}
+input[type=range]{height:20px}
 </style>
 </head>
 <body>
-<div id="container">
+<div id="main">
 <div id="left">
-<div class="panel">
-<h3>🤖 ESP32 CONNECTION</h3>
-<input id="espIP" placeholder="ESP32 IP (e.g., 192.168.1.100)" value="192.168.43.104">
-<button onclick="connectESP()">Connect to ESP32</button>
-<button onclick="testConnection()">Test Connection</button>
-<div class="status">Status: <span id="espStatus" class="warn">Not Connected</span></div>
-<div class="status">Last Ping: <span id="lastPing">-</span>ms</div>
+<div class="box">
+<h3>🤖 ESP32</h3>
+<input id="ip" placeholder="IP: 192.168.1.100" value="192.168.43.104">
+<button onclick="connect()">Connect</button>
+<button onclick="test()">Test Motors</button>
+<div class="s">Status: <span id="st" class="warn">OFF</span></div>
+<div class="s">Ping: <span id="ping">-</span>ms</div>
+<div class="s">Sent: <span id="cnt">0</span></div>
 </div>
 
-<div class="panel">
-<h3>📹 CAMERA & TRACKING</h3>
-<button id="camBtn" onclick="startCamera()">Start Camera</button>
-<button onclick="toggleTracking()" id="trackBtn" disabled>Start Tracking</button>
-<button onclick="clearPath()">Clear Path</button>
-<div class="status">Camera: <span id="camStatus" class="warn">Off</span></div>
-<div class="status">Pose: <span id="poseStatus" class="warn">Waiting</span></div>
-<div class="status">FPS: <span id="fps">0</span></div>
+<div class="box">
+<h3>📹 Camera</h3>
+<button id="camBtn" onclick="startCam()">Start Camera</button>
+<button id="trkBtn" onclick="track()" disabled>Start Track</button>
+<button onclick="clear()">Clear Path</button>
+<div class="s">Cam: <span id="cSt" class="warn">OFF</span></div>
+<div class="s">Pose: <span id="pSt" class="warn">Wait</span></div>
+<div class="s">FPS: <span id="fps">0</span></div>
 </div>
 
-<div class="panel">
-<h3>⚙️ CONTROL SETTINGS</h3>
-<label>Drive Speed: <input type="range" id="driveSpeed" min="30" max="100" value="60" oninput="this.nextElementSibling.textContent=this.value"><span>60</span>%</label>
-<label>Steer Speed: <input type="range" id="steerSpeed" min="30" max="100" value="70" oninput="this.nextElementSibling.textContent=this.value"><span>70</span>%</label>
-<label>Movement Threshold: <input type="range" id="threshold" min="20" max="100" value="50" oninput="this.nextElementSibling.textContent=this.value"><span>50</span>px</label>
-<label>Update Rate: <input type="range" id="updateRate" min="50" max="500" value="150" oninput="this.nextElementSibling.textContent=this.value"><span>150</span>ms</label>
+<div class="box">
+<h3>⚙️ Settings</h3>
+<label>Drive: <input type="range" id="drv" min="30" max="100" value="60" oninput="u(this)"><span>60</span></label>
+<label>Steer: <input type="range" id="str" min="30" max="100" value="70" oninput="u(this)"><span>70</span></label>
+<label>Threshold: <input type="range" id="thr" min="20" max="100" value="50" oninput="u(this)"><span>50</span></label>
+<label>Rate(ms): <input type="range" id="rate" min="50" max="300" value="120" oninput="u(this)"><span>120</span></label>
 </div>
 
-<div class="panel">
-<h3>📊 LIVE DATA</h3>
-<div class="status">Commands Sent: <span id="cmdCount">0</span></div>
-<div class="status">ESP Distance: <span id="espDist">-</span>cm</div>
-<div class="status">Current Cmd: <span id="currentCmd">-</span></div>
-<div class="log" id="logBox"></div>
+<div class="box">
+<h3>📊 ESP Data</h3>
+<div class="s">Distance: <span id="dist">-</span>cm</div>
+<div class="s">Last: <span id="last">-</span></div>
 </div>
 </div>
 
-<div id="right">
+<div id="center">
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
-<div id="command">READY</div>
+<div id="cmd">READY</div>
+<div id="remote">
+<h3>🎮 REMOTE</h3>
+<div class="rRow"><button class="rBtn" onclick="m(60,0)">↑</button></div>
+<div class="rRow">
+<button class="rBtn" onclick="m(0,-70)">←</button>
+<button class="rBtn btn-stop" onclick="m(0,0)">■</button>
+<button class="rBtn" onclick="m(0,70)">→</button>
+</div>
+<div class="rRow"><button class="rBtn" onclick="m(-50,0)">↓</button></div>
+<div id="cmdVis">
+<div class="cmdItem" id="cF">FRONT: 0</div>
+<div class="cmdItem" id="cB">BACK: 0</div>
+<div class="cmdItem" id="cL">LEFT: 0</div>
+<div class="cmdItem" id="cR">RIGHT: 0</div>
+<div class="cmdItem" id="cS">STOP: 0</div>
+</div>
+</div>
 </div>
 </div>
 
 <script>
-let video,canvas,ctx,pose,camera,isTracking=false,espIP='',espConnected=false;
-let path=[],lastPos=null,frameCount=0,lastTime=Date.now(),cmdCount=0;
-let lastCommand='STOP',lastCommandTime=0,lastESPSend=0;
+let v,c,ctx,pose,cam,trk=0,ip='',conn=0,path=[],lastP=null,fc=0,lt=Date.now(),cc=0,lc='STOP',lct=0,les=0;
+const cmdC={FRONT:0,BACK:0,LEFT:0,RIGHT:0,STOP:0};
 
-function log(msg,type='ok'){
-const div=document.createElement('div');
-div.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
-div.style.color=type==='err'?'#f00':type==='warn'?'#fa0':'#0f0';
-const box=document.getElementById('logBox');
-box.insertBefore(div,box.firstChild);
-if(box.children.length>50)box.removeChild(box.lastChild);
-}
+function u(e){e.nextElementSibling.textContent=e.value}
+function upd(id,t,cl){const e=document.getElementById(id);e.textContent=t;e.className=cl}
 
-function updateStatus(id,text,cls){
-const el=document.getElementById(id);
-el.textContent=text;
-el.className=cls;
-}
-
-async function connectESP(){
-espIP=document.getElementById('espIP').value.trim();
-if(!espIP){
-alert('Enter ESP32 IP address!');
-return;
-}
-log('Connecting to ESP32: '+espIP,'warn');
+async function connect(){
+ip=document.getElementById('ip').value.trim();
+if(!ip){alert('Enter IP!');return}
 try{
-const start=Date.now();
-const res=await fetch(`http://${espIP}/status`,{timeout:3000});
-const data=await res.json();
-const ping=Date.now()-start;
-document.getElementById('lastPing').textContent=ping;
-espConnected=true;
-updateStatus('espStatus','Connected','ok');
-log(`Connected! Ping: ${ping}ms`,'ok');
-log(`ESP Data: Drive=${data.drive} Steer=${data.steer} Dist=${data.distance}cm`,'ok');
+const s=Date.now();
+const r=await fetch(`http://${ip}/status`,{timeout:3000});
+const d=await r.json();
+document.getElementById('ping').textContent=Date.now()-s;
+conn=1;
+upd('st','ON','ok');
+upd('dist',d.distance.toFixed(1));
 }catch(e){
-espConnected=false;
-updateStatus('espStatus','Connection Failed','err');
-log('Connection failed: '+e.message,'err');
-alert('Failed to connect to ESP32!\nCheck:\n1. IP address correct?\n2. ESP32 powered on?\n3. Same WiFi network?');
+conn=0;
+upd('st','ERR','err');
+alert('Connect failed!\n1. Check IP\n2. ESP32 ON?\n3. Same WiFi?');
 }
 }
 
-async function testConnection(){
-if(!espIP){
-alert('Connect to ESP32 first!');
-return;
-}
-log('Testing ESP32...','warn');
+async function test(){
+if(!ip){alert('Connect first!');return}
 try{
-await fetch(`http://${espIP}/test?drive=40&steer=0`);
-await sleep(800);
-await fetch(`http://${espIP}/test?drive=0&steer=50`);
-await sleep(800);
-await fetch(`http://${espIP}/test?drive=0&steer=-50`);
-await sleep(800);
-await fetch(`http://${espIP}/stop`);
-log('Test complete!','ok');
-}catch(e){
-log('Test failed: '+e.message,'err');
-}
+await fetch(`http://${ip}/test?drive=40&steer=0`);
+await sleep(700);
+await fetch(`http://${ip}/test?drive=0&steer=60`);
+await sleep(700);
+await fetch(`http://${ip}/test?drive=0&steer=-60`);
+await sleep(700);
+await fetch(`http://${ip}/stop`);
+}catch(e){alert('Test failed!')}
 }
 
-async function sendESPCommand(drive,steer){
-if(!espConnected||!espIP)return;
-const now=Date.now();
-if(now-lastESPSend<parseInt(document.getElementById('updateRate').value))return;
-lastESPSend=now;
+async function send(d,s){
+if(!conn||!ip)return;
+const n=Date.now();
+if(n-les<parseInt(document.getElementById('rate').value))return;
+les=n;
 try{
-const url=`http://${espIP}/control?drive=${drive}&steer=${steer}`;
-fetch(url,{method:'GET',mode:'no-cors'}).catch(()=>{});
-cmdCount++;
-document.getElementById('cmdCount').textContent=cmdCount;
-}catch(e){
-log('Send error: '+e.message,'err');
+fetch(`http://${ip}/control?drive=${d}&steer=${s}`,{method:'GET',mode:'no-cors'}).catch(()=>{});
+cc++;
+document.getElementById('cnt').textContent=cc;
+document.getElementById('last').textContent=`D:${d} S:${s}`;
+}catch(e){}
 }
+
+function m(d,s){
+if(!conn){alert('Connect ESP32!');return}
+send(d,s);
+let cmd='STOP';
+if(d>0)cmd='FRONT';
+else if(d<0)cmd='BACK';
+else if(s<0)cmd='LEFT';
+else if(s>0)cmd='RIGHT';
+cmdC[cmd]++;
+updateCmdVis(cmd);
+document.getElementById('cmd').textContent=cmd;
+}
+
+function updateCmdVis(active){
+['cF','cB','cL','cR','cS'].forEach(id=>{
+const e=document.getElementById(id);
+e.className='cmdItem';
+});
+const map={FRONT:'cF',BACK:'cB',LEFT:'cL',RIGHT:'cR',STOP:'cS'};
+const e=document.getElementById(map[active]);
+e.className='cmdItem cmdActive';
+document.getElementById('cF').textContent='FRONT: '+cmdC.FRONT;
+document.getElementById('cB').textContent='BACK: '+cmdC.BACK;
+document.getElementById('cL').textContent='LEFT: '+cmdC.LEFT;
+document.getElementById('cR').textContent='RIGHT: '+cmdC.RIGHT;
+document.getElementById('cS').textContent='STOP: '+cmdC.STOP;
 }
 
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
 async function init(){
-video=document.getElementById('video');
-canvas=document.getElementById('canvas');
-ctx=canvas.getContext('2d');
+v=document.getElementById('video');
+c=document.getElementById('canvas');
+ctx=c.getContext('2d');
 pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
-pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-pose.onResults(onResults);
-updateStatus('poseStatus','Model Loaded','ok');
-log('Pose detection ready','ok');
+pose.setOptions({modelComplexity:0,smoothLandmarks:1,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+pose.onResults(onRes);
+upd('pSt','Ready','ok');
 }
 
-async function startCamera(){
+async function startCam(){
 try{
-updateStatus('camStatus','Starting...','warn');
-const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
-video.srcObject=stream;
-await new Promise(r=>{video.onloadedmetadata=()=>{canvas.width=video.videoWidth;canvas.height=video.videoHeight;r()}});
-await video.play();
-updateStatus('camStatus','Active','ok');
-camera=new Camera(video,{onFrame:async()=>{if(pose&&camera)await pose.send({image:video})},width:640,height:480});
-await camera.start();
-document.getElementById('camBtn').disabled=true;
-document.getElementById('trackBtn').disabled=false;
-log('Camera started','ok');
+upd('cSt','Start...','warn');
+const s=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:0});
+v.srcObject=s;
+await new Promise(r=>{v.onloadedmetadata=()=>{c.width=v.videoWidth;c.height=v.videoHeight;r()}});
+await v.play();
+upd('cSt','ON','ok');
+cam=new Camera(v,{onFrame:async()=>{if(pose&&cam)await pose.send({image:v})},width:640,height:480});
+await cam.start();
+document.getElementById('camBtn').disabled=1;
+document.getElementById('trkBtn').disabled=0;
 }catch(e){
-updateStatus('camStatus','Failed: '+e.name,'err');
-log('Camera error: '+e.message,'err');
-alert('Camera Error!\n1. Allow camera permission\n2. Check camera working\n3. Refresh page');
+upd('cSt','ERR','err');
+alert('Camera Error!\n1. Allow permission\n2. Check camera\n3. Refresh');
 }
 }
 
-function toggleTracking(){
-isTracking=!isTracking;
-const btn=document.getElementById('trackBtn');
-if(isTracking){
-if(!espConnected){
-alert('Connect to ESP32 first!');
-isTracking=false;
-return;
-}
-btn.textContent='Stop Tracking';
-btn.style.background='#f00';
-updateStatus('poseStatus','TRACKING ACTIVE','ok');
-log('🎯 Tracking started - Following person','ok');
+function track(){
+trk=!trk;
+const b=document.getElementById('trkBtn');
+if(trk){
+if(!conn){alert('Connect ESP32!');trk=0;return}
+b.textContent='Stop Track';
+b.style.background='#f00';
+upd('pSt','TRACK','ok');
 }else{
-btn.textContent='Start Tracking';
-btn.style.background='#0a0';
-updateStatus('poseStatus','Tracking Stopped','warn');
-sendESPCommand(0,0);
-log('Tracking stopped','warn');
+b.textContent='Start Track';
+b.style.background='#0a0';
+upd('pSt','Stop','warn');
+send(0,0);
 }
 }
 
-function onResults(results){
-if(!canvas||!ctx)return;
+function onRes(r){
+if(!c||!ctx)return;
 ctx.save();
-ctx.clearRect(0,0,canvas.width,canvas.height);
-ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
-if(results.poseLandmarks){
-const landmarks=results.poseLandmarks;
-const leftHip=landmarks[23];
-const rightHip=landmarks[24];
-if(leftHip&&rightHip){
-const centerX=(leftHip.x+rightHip.x)/2*canvas.width;
-const centerY=(leftHip.y+rightHip.y)/2*canvas.height;
-const currentPos={x:centerX,y:centerY};
-if(lastPos&&isTracking){
-path.push({x1:lastPos.x,y1:lastPos.y,x2:currentPos.x,y2:currentPos.y});
-if(path.length>60)path.shift();
-const dx=currentPos.x-lastPos.x;
-const dy=currentPos.y-lastPos.y;
-const threshold=parseInt(document.getElementById('threshold').value);
-const now=Date.now();
-if(now-lastCommandTime>parseInt(document.getElementById('updateRate').value)){
-let cmd='';
-let drive=0,steer=0;
-const driveSpd=parseInt(document.getElementById('driveSpeed').value);
-const steerSpd=parseInt(document.getElementById('steerSpeed').value);
-if(Math.abs(dx)>threshold||Math.abs(dy)>threshold){
+ctx.clearRect(0,0,c.width,c.height);
+ctx.drawImage(r.image,0,0,c.width,c.height);
+if(r.poseLandmarks){
+const l=r.poseLandmarks;
+const lh=l[23],rh=l[24];
+if(lh&&rh){
+const cx=(lh.x+rh.x)/2*c.width;
+const cy=(lh.y+rh.y)/2*c.height;
+const cp={x:cx,y:cy};
+if(lastP&&trk){
+path.push({x1:lastP.x,y1:lastP.y,x2:cp.x,y2:cp.y});
+if(path.length>50)path.shift();
+const dx=cp.x-lastP.x;
+const dy=cp.y-lastP.y;
+const n=Date.now();
+const thr=parseInt(document.getElementById('thr').value);
+if(n-lct>parseInt(document.getElementById('rate').value)){
+let cmd='',drv=0,steer=0;
+const dSpd=parseInt(document.getElementById('drv').value);
+const sSpd=parseInt(document.getElementById('str').value);
+if(Math.abs(dx)>thr||Math.abs(dy)>thr){
 if(Math.abs(dx)>Math.abs(dy)){
 cmd=dx>0?'RIGHT':'LEFT';
-steer=dx>0?steerSpd:-steerSpd;
-drive=driveSpd/2;
+steer=dx>0?sSpd:-sSpd;
+drv=dSpd/2;
 }else{
 cmd=dy>0?'FRONT':'BACK';
-drive=dy>0?driveSpd:-driveSpd;
+drv=dy>0?dSpd:-dSpd;
 steer=0;
 }
 }else{
 cmd='STOP';
-drive=0;
-steer=0;
+drv=0;steer=0;
 }
-if(cmd!==lastCommand||cmd!=='STOP'){
-lastCommand=cmd;
-lastCommandTime=now;
-document.getElementById('command').textContent=cmd;
-document.getElementById('currentCmd').textContent=`${cmd} (D:${drive} S:${steer})`;
-sendESPCommand(drive,steer);
-log(`→ ${cmd} | Drive:${drive} Steer:${steer}`);
-}
+if(cmd!==lc||cmd!=='STOP'){
+lc=cmd;
+lct=n;
+document.getElementById('cmd').textContent=cmd;
+cmdC[cmd]++;
+updateCmdVis(cmd);
+send(drv,steer);
 }
 }
-lastPos=currentPos;
-drawPath();
+}
+lastP=cp;
+drawP();
 ctx.beginPath();
-ctx.arc(centerX,centerY,12,0,2*Math.PI);
+ctx.arc(cx,cy,10,0,2*Math.PI);
 ctx.fillStyle='#0f0';
 ctx.fill();
 ctx.strokeStyle='#fff';
-ctx.lineWidth=3;
+ctx.lineWidth=2;
 ctx.stroke();
 }
-drawConnectors(ctx,landmarks,POSE_CONNECTIONS,{color:'rgba(0,255,0,0.4)',lineWidth:2});
-drawLandmarks(ctx,landmarks,{color:'rgba(0,255,255,0.6)',lineWidth:1,radius:4});
+drawConnectors(ctx,l,POSE_CONNECTIONS,{color:'rgba(0,255,0,0.4)',lineWidth:2});
+drawLandmarks(ctx,l,{color:'rgba(0,255,255,0.5)',lineWidth:1,radius:3});
 }
 ctx.restore();
-frameCount++;
-const now=Date.now();
-if(now-lastTime>1000){
-document.getElementById('fps').textContent=frameCount;
-frameCount=0;
-lastTime=now;
+fc++;
+const n=Date.now();
+if(n-lt>1000){
+document.getElementById('fps').textContent=fc;
+fc=0;
+lt=n;
 }
 }
 
-function drawPath(){
+function drawP(){
 if(path.length<1)return;
 ctx.strokeStyle='#0f0';
-ctx.lineWidth=4;
+ctx.lineWidth=3;
 ctx.shadowColor='#0f0';
-ctx.shadowBlur=15;
+ctx.shadowBlur=10;
 ctx.beginPath();
 path.forEach((s,i)=>{
 if(i===0)ctx.moveTo(s.x1,s.y1);
@@ -298,29 +310,22 @@ ctx.lineTo(s.x2,s.y2);
 });
 ctx.stroke();
 ctx.shadowBlur=0;
-path.forEach((s,i)=>{
-ctx.beginPath();
-ctx.arc(s.x2,s.y2,6,0,2*Math.PI);
-ctx.fillStyle=`rgba(0,255,0,${0.3+i/path.length*0.7})`;
-ctx.fill();
-});
 }
 
-function clearPath(){
+function clear(){
 path=[];
-lastPos=null;
-lastCommand='STOP';
-document.getElementById('command').textContent='READY';
-sendESPCommand(0,0);
-log('Path cleared','warn');
+lastP=null;
+lc='STOP';
+document.getElementById('cmd').textContent='READY';
+send(0,0);
 }
 
 setInterval(async()=>{
-if(espConnected&&espIP){
+if(conn&&ip){
 try{
-const res=await fetch(`http://${espIP}/data`);
-const data=await res.json();
-document.getElementById('espDist').textContent=data.distance.toFixed(1);
+const r=await fetch(`http://${ip}/data`);
+const d=await r.json();
+upd('dist',d.distance.toFixed(1));
 }catch(e){}
 }
 },1000);
