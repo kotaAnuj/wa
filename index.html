@@ -3,28 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Object Tracking & Detection</title>
+    <title>Person Tracking & Movement Commands</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            font-family: Arial, sans-serif; 
-            background: #1a1a2e; 
+            font-family: 'Segoe UI', Tahoma, sans-serif; 
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
             color: #eee;
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 20px;
+            min-height: 100vh;
         }
-        h1 { margin-bottom: 20px; color: #00d9ff; }
+        h1 { 
+            margin-bottom: 20px; 
+            color: #00d9ff; 
+            text-shadow: 0 0 10px rgba(0,217,255,0.5);
+        }
         .container { 
             position: relative; 
             max-width: 640px; 
             width: 100%;
+            margin-bottom: 20px;
         }
         video, canvas { 
             width: 100%; 
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,217,255,0.3);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,217,255,0.3);
         }
         canvas { 
             position: absolute; 
@@ -32,54 +38,105 @@
             left: 0; 
         }
         .controls { 
-            margin-top: 20px; 
             display: flex; 
             gap: 10px;
             flex-wrap: wrap;
+            margin-bottom: 20px;
         }
         button { 
-            padding: 10px 20px; 
+            padding: 12px 24px; 
             border: none; 
-            border-radius: 5px; 
-            background: #00d9ff; 
+            border-radius: 8px; 
+            background: linear-gradient(135deg, #00d9ff 0%, #00b8d4 100%); 
             color: #1a1a2e; 
             font-weight: bold;
+            font-size: 14px;
             cursor: pointer;
-            transition: 0.3s;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,217,255,0.3);
         }
-        button:hover { background: #00b8d4; transform: translateY(-2px); }
-        button:disabled { background: #555; cursor: not-allowed; }
-        .info { 
-            margin-top: 20px; 
-            padding: 15px; 
-            background: #16213e; 
-            border-radius: 8px;
+        button:hover { 
+            transform: translateY(-3px); 
+            box-shadow: 0 6px 20px rgba(0,217,255,0.5);
+        }
+        button:disabled { 
+            background: #555; 
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .dashboard { 
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
             width: 100%;
             max-width: 640px;
         }
-        .status { 
+        .panel { 
+            padding: 20px; 
+            background: rgba(22, 33, 62, 0.8); 
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0,217,255,0.2);
+        }
+        .panel h3 { 
+            color: #00d9ff; 
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        .stat { 
             display: flex; 
-            gap: 20px; 
-            flex-wrap: wrap;
-            margin-bottom: 10px;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
-        .status div { 
-            padding: 8px 15px; 
-            background: #0f3460; 
-            border-radius: 5px;
+        .stat:last-child { border-bottom: none; }
+        .stat-label { color: #aaa; }
+        .stat-value { 
+            color: #00ff88; 
+            font-weight: bold;
         }
-        .alert { 
-            padding: 10px; 
-            background: #d32f2f; 
-            border-radius: 5px; 
+        .command-display { 
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            border-radius: 12px;
             margin-top: 10px;
-            display: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 4px 15px rgba(255,107,107,0.4);
         }
-        .alert.show { display: block; }
+        .trail { 
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #00ff88;
+            border-radius: 50%;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .movement-history {
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .movement-item {
+            padding: 5px 10px;
+            margin: 5px 0;
+            background: rgba(0,217,255,0.1);
+            border-radius: 5px;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .arrow {
+            font-size: 20px;
+        }
     </style>
 </head>
 <body>
-    <h1>🎯 Object Tracking & Person Detection</h1>
+    <h1>🎯 Person Tracking & Movement Commands</h1>
     
     <div class="container">
         <video id="video" autoplay playsinline></video>
@@ -88,17 +145,41 @@
     
     <div class="controls">
         <button id="startBtn">Start Camera</button>
-        <button id="trackBtn" disabled>Enable Tracking</button>
-        <button id="detectBtn" disabled>Detect Motion</button>
+        <button id="trackBtn" disabled>Start Tracking</button>
+        <button id="selectBtn" disabled>Select Person</button>
+        <button id="clearBtn" disabled>Clear Trail</button>
     </div>
     
-    <div class="info">
-        <div class="status">
-            <div>Objects: <span id="objCount">0</span></div>
-            <div>Motion: <span id="motion">None</span></div>
-            <div>FPS: <span id="fps">0</span></div>
+    <div class="dashboard">
+        <div class="panel">
+            <h3>📊 Tracking Stats</h3>
+            <div class="stat">
+                <span class="stat-label">Tracking ID:</span>
+                <span class="stat-value" id="trackingId">None</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Position X:</span>
+                <span class="stat-value" id="posX">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Position Y:</span>
+                <span class="stat-value" id="posY">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Speed:</span>
+                <span class="stat-value" id="speed">0 px/s</span>
+            </div>
         </div>
-        <div class="alert" id="alert">⚠️ Object detected in path!</div>
+        
+        <div class="panel">
+            <h3>🎮 Current Command</h3>
+            <div class="command-display" id="command">IDLE</div>
+        </div>
+        
+        <div class="panel">
+            <h3>📍 Movement History</h3>
+            <div class="movement-history" id="history"></div>
+        </div>
     </div>
 
     <script>
@@ -107,20 +188,19 @@
         const ctx = canvas.getContext('2d');
         const startBtn = document.getElementById('startBtn');
         const trackBtn = document.getElementById('trackBtn');
-        const detectBtn = document.getElementById('detectBtn');
-        const objCount = document.getElementById('objCount');
-        const motion = document.getElementById('motion');
-        const fpsDisplay = document.getElementById('fps');
-        const alert = document.getElementById('alert');
+        const selectBtn = document.getElementById('selectBtn');
+        const clearBtn = document.getElementById('clearBtn');
 
         let tracking = false;
-        let detecting = false;
-        let prevFrame = null;
-        let objects = [];
-        let frameCount = 0;
-        let lastTime = Date.now();
+        let selecting = false;
+        let selectedPerson = null;
+        let trackedObjects = new Map();
+        let nextId = 1;
+        let trail = [];
+        let movementHistory = [];
+        const maxTrailLength = 30;
 
-        // Start camera
+        // Camera setup
         startBtn.addEventListener('click', async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -131,7 +211,8 @@
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     trackBtn.disabled = false;
-                    detectBtn.disabled = false;
+                    selectBtn.disabled = false;
+                    clearBtn.disabled = false;
                     startBtn.disabled = true;
                 });
             } catch (err) {
@@ -142,43 +223,97 @@
         // Toggle tracking
         trackBtn.addEventListener('click', () => {
             tracking = !tracking;
-            trackBtn.textContent = tracking ? 'Stop Tracking' : 'Enable Tracking';
+            trackBtn.textContent = tracking ? 'Stop Tracking' : 'Start Tracking';
             if (tracking) processFrame();
         });
 
-        // Toggle detection
-        detectBtn.addEventListener('click', () => {
-            detecting = !detecting;
-            detectBtn.textContent = detecting ? 'Stop Detection' : 'Detect Motion';
+        // Select person to track
+        selectBtn.addEventListener('click', () => {
+            selecting = !selecting;
+            selectBtn.textContent = selecting ? 'Cancel Selection' : 'Select Person';
+            if (selecting) {
+                canvas.style.cursor = 'crosshair';
+            } else {
+                canvas.style.cursor = 'default';
+            }
         });
 
-        // Simple object detection using color-based tracking
-        function detectObjects(imageData) {
+        // Clear trail
+        clearBtn.addEventListener('click', () => {
+            trail = [];
+            movementHistory = [];
+            document.getElementById('history').innerHTML = '';
+        });
+
+        // Click to select person
+        canvas.addEventListener('click', (e) => {
+            if (!selecting) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+            
+            // Find closest detected object
+            let closest = null;
+            let minDist = Infinity;
+            
+            trackedObjects.forEach((obj, id) => {
+                const dist = Math.hypot(obj.centroid.x - x, obj.centroid.y - y);
+                if (dist < minDist && dist < 100) {
+                    minDist = dist;
+                    closest = id;
+                }
+            });
+            
+            if (closest) {
+                selectedPerson = closest;
+                selecting = false;
+                selectBtn.textContent = 'Select Person';
+                canvas.style.cursor = 'default';
+                document.getElementById('trackingId').textContent = closest;
+            }
+        });
+
+        // Detect motion blobs (simplified person detection)
+        function detectPersons(imageData) {
             const data = imageData.data;
             const width = imageData.width;
             const height = imageData.height;
             const detected = [];
-            const gridSize = 40;
+            const gridSize = 50;
+            const minBrightness = 80;
             
-            // Divide frame into grid and detect motion/objects
-            for (let y = 0; y < height; y += gridSize) {
-                for (let x = 0; x < width; x += gridSize) {
-                    let brightness = 0;
-                    let count = 0;
+            for (let y = 0; y < height - gridSize; y += gridSize) {
+                for (let x = 0; x < width - gridSize; x += gridSize) {
+                    let totalBrightness = 0;
+                    let edgeCount = 0;
                     
-                    for (let dy = 0; dy < gridSize && y + dy < height; dy++) {
-                        for (let dx = 0; dx < gridSize && x + dx < width; dx++) {
+                    for (let dy = 0; dy < gridSize; dy++) {
+                        for (let dx = 0; dx < gridSize; dx++) {
                             const i = ((y + dy) * width + (x + dx)) * 4;
-                            brightness += (data[i] + data[i + 1] + data[i + 2]) / 3;
-                            count++;
+                            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                            totalBrightness += brightness;
+                            
+                            // Edge detection
+                            if (dx < gridSize - 1) {
+                                const nextI = ((y + dy) * width + (x + dx + 1)) * 4;
+                                const nextBrightness = (data[nextI] + data[nextI + 1] + data[nextI + 2]) / 3;
+                                if (Math.abs(brightness - nextBrightness) > 30) edgeCount++;
+                            }
                         }
                     }
                     
-                    const avgBrightness = brightness / count;
+                    const avgBrightness = totalBrightness / (gridSize * gridSize);
                     
-                    // Detect significant bright areas (simple person/object detection)
-                    if (avgBrightness > 100) {
-                        detected.push({ x, y, size: gridSize, brightness: avgBrightness });
+                    // Detect person-like objects
+                    if (avgBrightness > minBrightness && edgeCount > 20) {
+                        detected.push({
+                            x: x,
+                            y: y,
+                            width: gridSize,
+                            height: gridSize,
+                            centroid: { x: x + gridSize / 2, y: y + gridSize / 2 }
+                        });
                     }
                 }
             }
@@ -186,102 +321,209 @@
             return detected;
         }
 
-        // Motion detection
-        function detectMotion(currentData, previousData) {
-            if (!previousData) return 0;
-            
-            let diff = 0;
-            for (let i = 0; i < currentData.length; i += 4) {
-                const d = Math.abs(currentData[i] - previousData[i]) +
-                         Math.abs(currentData[i + 1] - previousData[i + 1]) +
-                         Math.abs(currentData[i + 2] - previousData[i + 2]);
-                diff += d;
+        // Update tracked objects using centroid tracking
+        function updateTracking(detections) {
+            if (trackedObjects.size === 0) {
+                // Register all new objects
+                detections.forEach(det => {
+                    trackedObjects.set(nextId++, {
+                        centroid: det.centroid,
+                        bbox: { x: det.x, y: det.y, w: det.width, h: det.height },
+                        history: [det.centroid],
+                        disappeared: 0
+                    });
+                });
+                return;
             }
             
-            return diff / (currentData.length / 4);
-        }
-
-        // Check for obstacles in path (center area)
-        function checkObstacles(detectedObjects) {
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const threshold = 150;
+            if (detections.length === 0) {
+                // Mark all as disappeared
+                trackedObjects.forEach((obj, id) => {
+                    obj.disappeared++;
+                    if (obj.disappeared > 10) trackedObjects.delete(id);
+                });
+                return;
+            }
             
-            for (let obj of detectedObjects) {
-                const distX = Math.abs(obj.x - centerX);
-                const distY = Math.abs(obj.y - centerY);
-                
-                if (distX < threshold && distY < threshold) {
-                    return true;
+            // Match detections to existing objects
+            const existingIds = Array.from(trackedObjects.keys());
+            const distances = [];
+            
+            existingIds.forEach(id => {
+                const obj = trackedObjects.get(id);
+                detections.forEach((det, detIdx) => {
+                    const dist = Math.hypot(
+                        obj.centroid.x - det.centroid.x,
+                        obj.centroid.y - det.centroid.y
+                    );
+                    distances.push({ id, detIdx, dist });
+                });
+            });
+            
+            // Sort by distance and assign
+            distances.sort((a, b) => a.dist - b.dist);
+            const usedIds = new Set();
+            const usedDets = new Set();
+            
+            distances.forEach(({ id, detIdx, dist }) => {
+                if (!usedIds.has(id) && !usedDets.has(detIdx) && dist < 100) {
+                    const det = detections[detIdx];
+                    const obj = trackedObjects.get(id);
+                    obj.centroid = det.centroid;
+                    obj.bbox = { x: det.x, y: det.y, w: det.width, h: det.height };
+                    obj.history.push(det.centroid);
+                    if (obj.history.length > 20) obj.history.shift();
+                    obj.disappeared = 0;
+                    usedIds.add(id);
+                    usedDets.add(detIdx);
                 }
-            }
-            return false;
+            });
+            
+            // Register new objects
+            detections.forEach((det, idx) => {
+                if (!usedDets.has(idx)) {
+                    trackedObjects.set(nextId++, {
+                        centroid: det.centroid,
+                        bbox: { x: det.x, y: det.y, w: det.width, h: det.height },
+                        history: [det.centroid],
+                        disappeared: 0
+                    });
+                }
+            });
+            
+            // Remove disappeared objects
+            trackedObjects.forEach((obj, id) => {
+                if (!usedIds.has(id)) {
+                    obj.disappeared++;
+                    if (obj.disappeared > 10) {
+                        trackedObjects.delete(id);
+                        if (selectedPerson === id) selectedPerson = null;
+                    }
+                }
+            });
         }
 
-        // Process each frame
+        // Generate movement command
+        function generateCommand(centroid, prevCentroid) {
+            if (!prevCentroid) return 'IDLE';
+            
+            const dx = centroid.x - prevCentroid.x;
+            const dy = centroid.y - prevCentroid.y;
+            const threshold = 10;
+            
+            if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
+                return 'IDLE';
+            }
+            
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            
+            // Determine primary direction
+            if (Math.abs(dx) > Math.abs(dy)) {
+                return dx > 0 ? 'RIGHT ➡️' : 'LEFT ⬅️';
+            } else {
+                return dy > 0 ? 'FORWARD ⬇️' : 'BACK ⬆️';
+            }
+        }
+
+        // Calculate speed
+        function calculateSpeed(history) {
+            if (history.length < 2) return 0;
+            const recent = history.slice(-5);
+            let totalDist = 0;
+            for (let i = 1; i < recent.length; i++) {
+                totalDist += Math.hypot(
+                    recent[i].x - recent[i-1].x,
+                    recent[i].y - recent[i-1].y
+                );
+            }
+            return Math.round(totalDist * 6); // Approximate px/s
+        }
+
+        // Add to movement history
+        function addToHistory(command, position) {
+            const historyDiv = document.getElementById('history');
+            const item = document.createElement('div');
+            item.className = 'movement-item';
+            item.innerHTML = `
+                <span>${command}</span>
+                <span style="color: #00d9ff;">${position.x.toFixed(0)}, ${position.y.toFixed(0)}</span>
+            `;
+            historyDiv.insertBefore(item, historyDiv.firstChild);
+            
+            if (historyDiv.children.length > 10) {
+                historyDiv.removeChild(historyDiv.lastChild);
+            }
+        }
+
+        // Process frame
         function processFrame() {
             if (!tracking) return;
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
-            // Detect objects
-            objects = detectObjects(imageData);
-            objCount.textContent = objects.length;
+            // Detect persons
+            const detections = detectPersons(imageData);
             
-            // Draw detected objects
-            objects.forEach(obj => {
-                ctx.strokeStyle = '#00ff00';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(obj.x, obj.y, obj.size, obj.size);
+            // Update tracking
+            updateTracking(detections);
+            
+            // Draw all tracked objects
+            trackedObjects.forEach((obj, id) => {
+                const isSelected = id === selectedPerson;
                 
-                // Label objects
-                ctx.fillStyle = '#00ff00';
-                ctx.font = '12px Arial';
-                ctx.fillText('Object', obj.x, obj.y - 5);
+                // Draw bounding box
+                ctx.strokeStyle = isSelected ? '#00ff88' : '#00d9ff';
+                ctx.lineWidth = isSelected ? 4 : 2;
+                ctx.strokeRect(obj.bbox.x, obj.bbox.y, obj.bbox.w, obj.bbox.h);
+                
+                // Draw centroid
+                ctx.fillStyle = isSelected ? '#00ff88' : '#00d9ff';
+                ctx.beginPath();
+                ctx.arc(obj.centroid.x, obj.centroid.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw ID
+                ctx.fillStyle = isSelected ? '#00ff88' : '#00d9ff';
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText(`ID: ${id}`, obj.bbox.x, obj.bbox.y - 10);
+                
+                // Draw trail for selected person
+                if (isSelected && obj.history.length > 1) {
+                    ctx.strokeStyle = '#00ff88';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(obj.history[0].x, obj.history[0].y);
+                    for (let i = 1; i < obj.history.length; i++) {
+                        ctx.lineTo(obj.history[i].x, obj.history[i].y);
+                    }
+                    ctx.stroke();
+                }
             });
             
-            // Motion detection
-            if (detecting && prevFrame) {
-                const motionLevel = detectMotion(imageData.data, prevFrame);
-                motion.textContent = motionLevel > 10 ? 'Detected' : 'None';
+            // Update stats for selected person
+            if (selectedPerson && trackedObjects.has(selectedPerson)) {
+                const obj = trackedObjects.get(selectedPerson);
+                document.getElementById('posX').textContent = obj.centroid.x.toFixed(0);
+                document.getElementById('posY').textContent = obj.centroid.y.toFixed(0);
                 
-                if (motionLevel > 10) {
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                const speed = calculateSpeed(obj.history);
+                document.getElementById('speed').textContent = speed + ' px/s';
+                
+                // Generate command
+                if (obj.history.length > 1) {
+                    const prevCentroid = obj.history[obj.history.length - 2];
+                    const command = generateCommand(obj.centroid, prevCentroid);
+                    const commandEl = document.getElementById('command');
+                    if (commandEl.textContent !== command) {
+                        commandEl.textContent = command;
+                        if (command !== 'IDLE') {
+                            addToHistory(command, obj.centroid);
+                        }
+                    }
                 }
-            }
-            
-            // Obstacle avoidance
-            const hasObstacle = checkObstacles(objects);
-            if (hasObstacle) {
-                alert.classList.add('show');
-                // Draw warning box in center
-                ctx.strokeStyle = '#ff0000';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(canvas.width/2 - 75, canvas.height/2 - 75, 150, 150);
-                ctx.fillStyle = '#ff0000';
-                ctx.font = '16px Arial';
-                ctx.fillText('⚠️ OBSTACLE', canvas.width/2 - 50, canvas.height/2);
             } else {
-                alert.classList.remove('show');
-            }
-            
-            // Draw center reference point
-            ctx.fillStyle = '#00d9ff';
-            ctx.beginPath();
-            ctx.arc(canvas.width/2, canvas.height/2, 5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            prevFrame = new Uint8ClampedArray(imageData.data);
-            
-            // Calculate FPS
-            frameCount++;
-            const now = Date.now();
-            if (now - lastTime >= 1000) {
-                fpsDisplay.textContent = frameCount;
-                frameCount = 0;
-                lastTime = now;
+                document.getElementById('command').textContent = 'IDLE';
             }
             
             requestAnimationFrame(processFrame);
