@@ -1,565 +1,184 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Person Tracking & Movement Commands</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, sans-serif; 
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
-            color: #eee;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            min-height: 100vh;
-        }
-        h1 { 
-            margin-bottom: 20px; 
-            color: #00d9ff; 
-            text-shadow: 0 0 10px rgba(0,217,255,0.5);
-        }
-        .container { 
-            position: relative; 
-            max-width: 640px; 
-            width: 100%;
-            margin-bottom: 20px;
-        }
-        video, canvas { 
-            width: 100%; 
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,217,255,0.3);
-        }
-        canvas { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-        }
-        .controls { 
-            display: flex; 
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 20px;
-        }
-        button { 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 8px; 
-            background: linear-gradient(135deg, #00d9ff 0%, #00b8d4 100%); 
-            color: #1a1a2e; 
-            font-weight: bold;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(0,217,255,0.3);
-        }
-        button:hover { 
-            transform: translateY(-3px); 
-            box-shadow: 0 6px 20px rgba(0,217,255,0.5);
-        }
-        button:disabled { 
-            background: #555; 
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-        .dashboard { 
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 15px;
-            width: 100%;
-            max-width: 640px;
-        }
-        .panel { 
-            padding: 20px; 
-            background: rgba(22, 33, 62, 0.8); 
-            border-radius: 12px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(0,217,255,0.2);
-        }
-        .panel h3 { 
-            color: #00d9ff; 
-            margin-bottom: 15px;
-            font-size: 16px;
-        }
-        .stat { 
-            display: flex; 
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .stat:last-child { border-bottom: none; }
-        .stat-label { color: #aaa; }
-        .stat-value { 
-            color: #00ff88; 
-            font-weight: bold;
-        }
-        .command-display { 
-            font-size: 32px;
-            font-weight: bold;
-            text-align: center;
-            padding: 20px;
-            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-            border-radius: 12px;
-            margin-top: 10px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            box-shadow: 0 4px 15px rgba(255,107,107,0.4);
-        }
-        .trail { 
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            background: #00ff88;
-            border-radius: 50%;
-            pointer-events: none;
-            opacity: 0.6;
-        }
-        .movement-history {
-            max-height: 150px;
-            overflow-y: auto;
-            margin-top: 10px;
-        }
-        .movement-item {
-            padding: 5px 10px;
-            margin: 5px 0;
-            background: rgba(0,217,255,0.1);
-            border-radius: 5px;
-            font-size: 12px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .arrow {
-            font-size: 20px;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Person Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;overflow:hidden}
+#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;align-items:center}
+#video{display:none}
+#canvas{max-width:100%;max-height:100vh;border:2px solid #16213e}
+#controls{position:absolute;top:20px;left:20px;z-index:10}
+button{background:#0f3460;color:#fff;border:none;padding:12px 24px;margin:5px;cursor:pointer;border-radius:5px;font-size:16px}
+button:hover{background:#16213e}
+#status{position:absolute;top:20px;right:20px;background:rgba(0,0,0,0.7);padding:15px;border-radius:5px;font-size:14px}
+#command{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(15,52,96,0.9);padding:20px 40px;border-radius:10px;font-size:32px;font-weight:bold;color:#00ff88;min-width:200px;text-align:center;box-shadow:0 0 20px rgba(0,255,136,0.5)}
+.path{stroke:#00ff88;stroke-width:3;fill:none;opacity:0.8}
+.point{fill:#ff006e;r:4}
+</style>
 </head>
 <body>
-    <h1>🎯 Person Tracking & Movement Commands</h1>
-    
-    <div class="container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas"></canvas>
-    </div>
-    
-    <div class="controls">
-        <button id="startBtn">Start Camera</button>
-        <button id="trackBtn" disabled>Start Tracking</button>
-        <button id="selectBtn" disabled>Select Person</button>
-        <button id="clearBtn" disabled>Clear Trail</button>
-    </div>
-    
-    <div class="dashboard">
-        <div class="panel">
-            <h3>📊 Tracking Stats</h3>
-            <div class="stat">
-                <span class="stat-label">Tracking ID:</span>
-                <span class="stat-value" id="trackingId">None</span>
-            </div>
-            <div class="stat">
-                <span class="stat-label">Position X:</span>
-                <span class="stat-value" id="posX">-</span>
-            </div>
-            <div class="stat">
-                <span class="stat-label">Position Y:</span>
-                <span class="stat-value" id="posY">-</span>
-            </div>
-            <div class="stat">
-                <span class="stat-label">Speed:</span>
-                <span class="stat-value" id="speed">0 px/s</span>
-            </div>
-        </div>
-        
-        <div class="panel">
-            <h3>🎮 Current Command</h3>
-            <div class="command-display" id="command">IDLE</div>
-        </div>
-        
-        <div class="panel">
-            <h3>📍 Movement History</h3>
-            <div class="movement-history" id="history"></div>
-        </div>
-    </div>
+<div id="container">
+<video id="video" playsinline></video>
+<canvas id="canvas"></canvas>
+<div id="controls">
+<button onclick="startTracking()">Start</button>
+<button onclick="stopTracking()">Stop</button>
+<button onclick="clearPath()">Clear Path</button>
+</div>
+<div id="status">
+<div>Status: <span id="trackStatus">Ready</span></div>
+<div>FPS: <span id="fps">0</span></div>
+</div>
+<div id="command">READY</div>
+</div>
 
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const startBtn = document.getElementById('startBtn');
-        const trackBtn = document.getElementById('trackBtn');
-        const selectBtn = document.getElementById('selectBtn');
-        const clearBtn = document.getElementById('clearBtn');
+<script>
+let video,canvas,ctx,detector,isTracking=false,path=[],lastPos=null,frameCount=0,lastTime=Date.now();
+const THRESHOLD=40,COMMAND_DELAY=500;
+let lastCommand='READY',lastCommandTime=0;
 
-        let tracking = false;
-        let selecting = false;
-        let selectedPerson = null;
-        let trackedObjects = new Map();
-        let nextId = 1;
-        let trail = [];
-        let movementHistory = [];
-        const maxTrailLength = 30;
+async function init(){
+video=document.getElementById('video');
+canvas=document.getElementById('canvas');
+ctx=canvas.getContext('2d');
+try{
+const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
+video.srcObject=stream;
+await video.play();
+canvas.width=video.videoWidth;
+canvas.height=video.videoHeight;
+const model=poseDetection.SupportedModels.BlazePose;
+detector=await poseDetection.createDetector(model,{runtime:'mediapipe',modelType:'lite',solutionPath:'https://cdn.jsdelivr.net/npm/@mediapipe/pose'});
+document.getElementById('trackStatus').textContent='Ready';
+}catch(e){
+console.error('Init error:',e);
+document.getElementById('trackStatus').textContent='Error: '+e.message;
+}
+}
 
-        // Camera setup
-        startBtn.addEventListener('click', async () => {
-            console.log('Start button clicked');
-            try {
-                // Check if getUserMedia is supported
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    alert('Your browser does not support camera access. Please use Chrome, Firefox, or Edge.');
-                    return;
-                }
+async function startTracking(){
+if(!detector){await init()}
+isTracking=true;
+document.getElementById('trackStatus').textContent='Tracking...';
+detectPose();
+}
 
-                console.log('Requesting camera access...');
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'user'
-                    } 
-                });
-                
-                console.log('Camera access granted');
-                video.srcObject = stream;
-                
-                // Wait for video to be ready
-                await new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        console.log('Video metadata loaded');
-                        resolve();
-                    };
-                });
-                
-                // Play the video
-                await video.play();
-                console.log('Video playing');
-                
-                // Set canvas size
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                // Enable buttons
-                trackBtn.disabled = false;
-                selectBtn.disabled = false;
-                clearBtn.disabled = false;
-                startBtn.disabled = true;
-                startBtn.textContent = 'Camera Active ✓';
-                
-                console.log('Setup complete');
-            } catch (err) {
-                console.error('Camera error:', err);
-                alert('Camera Error: ' + err.message + '\n\nPlease ensure:\n1. You granted camera permission\n2. No other app is using the camera\n3. You are using HTTPS or localhost');
-            }
-        });
+function stopTracking(){
+isTracking=false;
+document.getElementById('trackStatus').textContent='Stopped';
+}
 
-        // Toggle tracking
-        trackBtn.addEventListener('click', () => {
-            tracking = !tracking;
-            trackBtn.textContent = tracking ? 'Stop Tracking' : 'Start Tracking';
-            if (tracking) processFrame();
-        });
+function clearPath(){
+path=[];
+lastPos=null;
+lastCommand='READY';
+document.getElementById('command').textContent='READY';
+}
 
-        // Select person to track
-        selectBtn.addEventListener('click', () => {
-            selecting = !selecting;
-            selectBtn.textContent = selecting ? 'Cancel Selection' : 'Select Person';
-            if (selecting) {
-                canvas.style.cursor = 'crosshair';
-            } else {
-                canvas.style.cursor = 'default';
-            }
-        });
+async function detectPose(){
+if(!isTracking)return;
+try{
+const poses=await detector.estimatePoses(video);
+ctx.drawImage(video,0,0,canvas.width,canvas.height);
+if(poses.length>0){
+const pose=poses[0];
+const nose=pose.keypoints.find(k=>k.name==='nose');
+const leftHip=pose.keypoints.find(k=>k.name==='left_hip');
+const rightHip=pose.keypoints.find(k=>k.name==='right_hip');
+if(nose&&leftHip&&rightHip&&nose.score>0.3){
+const centerX=(leftHip.x+rightHip.x)/2;
+const centerY=(leftHip.y+rightHip.y)/2;
+const currentPos={x:centerX,y:centerY};
+if(lastPos){
+path.push({x1:lastPos.x,y1:lastPos.y,x2:currentPos.x,y2:currentPos.y});
+if(path.length>100)path.shift();
+const dx=currentPos.x-lastPos.x;
+const dy=currentPos.y-lastPos.y;
+const now=Date.now();
+if(now-lastCommandTime>COMMAND_DELAY){
+let cmd='';
+if(Math.abs(dx)>THRESHOLD||Math.abs(dy)>THRESHOLD){
+if(Math.abs(dx)>Math.abs(dy)){
+cmd=dx>0?'RIGHT':'LEFT';
+}else{
+cmd=dy>0?'FRONT':'BACK';
+}
+if(cmd&&cmd!==lastCommand){
+lastCommand=cmd;
+lastCommandTime=now;
+document.getElementById('command').textContent=cmd;
+}
+}
+}
+}
+lastPos=currentPos;
+drawPath();
+ctx.beginPath();
+ctx.arc(centerX,centerY,8,0,2*Math.PI);
+ctx.fillStyle='#ff006e';
+ctx.fill();
+ctx.strokeStyle='#fff';
+ctx.lineWidth=2;
+ctx.stroke();
+drawSkeleton(pose);
+}
+}
+frameCount++;
+const now=Date.now();
+if(now-lastTime>1000){
+document.getElementById('fps').textContent=frameCount;
+frameCount=0;
+lastTime=now;
+}
+}catch(e){
+console.error('Detection error:',e);
+}
+requestAnimationFrame(detectPose);
+}
 
-        // Clear trail
-        clearBtn.addEventListener('click', () => {
-            trail = [];
-            movementHistory = [];
-            document.getElementById('history').innerHTML = '';
-        });
+function drawPath(){
+if(path.length<2)return;
+ctx.strokeStyle='#00ff88';
+ctx.lineWidth=3;
+ctx.beginPath();
+path.forEach((segment,i)=>{
+if(i===0)ctx.moveTo(segment.x1,segment.y1);
+ctx.lineTo(segment.x2,segment.y2);
+});
+ctx.stroke();
+path.forEach(segment=>{
+ctx.beginPath();
+ctx.arc(segment.x2,segment.y2,4,0,2*Math.PI);
+ctx.fillStyle='#00ff88';
+ctx.fill();
+});
+}
 
-        // Click to select person
-        canvas.addEventListener('click', (e) => {
-            if (!selecting) return;
-            
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-            const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-            
-            // Find closest detected object
-            let closest = null;
-            let minDist = Infinity;
-            
-            trackedObjects.forEach((obj, id) => {
-                const dist = Math.hypot(obj.centroid.x - x, obj.centroid.y - y);
-                if (dist < minDist && dist < 100) {
-                    minDist = dist;
-                    closest = id;
-                }
-            });
-            
-            if (closest) {
-                selectedPerson = closest;
-                selecting = false;
-                selectBtn.textContent = 'Select Person';
-                canvas.style.cursor = 'default';
-                document.getElementById('trackingId').textContent = closest;
-            }
-        });
+function drawSkeleton(pose){
+const connections=[[11,13],[13,15],[12,14],[14,16],[11,12],[5,11],[6,12],[5,6],[5,7],[7,9],[6,8],[8,10],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+ctx.strokeStyle='rgba(255,255,255,0.5)';
+ctx.lineWidth=2;
+connections.forEach(([i,j])=>{
+const kp1=pose.keypoints[i];
+const kp2=pose.keypoints[j];
+if(kp1.score>0.3&&kp2.score>0.3){
+ctx.beginPath();
+ctx.moveTo(kp1.x,kp1.y);
+ctx.lineTo(kp2.x,kp2.y);
+ctx.stroke();
+}
+});
+}
 
-        // Detect motion blobs (simplified person detection)
-        function detectPersons(imageData) {
-            const data = imageData.data;
-            const width = imageData.width;
-            const height = imageData.height;
-            const detected = [];
-            const gridSize = 50;
-            const minBrightness = 80;
-            
-            for (let y = 0; y < height - gridSize; y += gridSize) {
-                for (let x = 0; x < width - gridSize; x += gridSize) {
-                    let totalBrightness = 0;
-                    let edgeCount = 0;
-                    
-                    for (let dy = 0; dy < gridSize; dy++) {
-                        for (let dx = 0; dx < gridSize; dx++) {
-                            const i = ((y + dy) * width + (x + dx)) * 4;
-                            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                            totalBrightness += brightness;
-                            
-                            // Edge detection
-                            if (dx < gridSize - 1) {
-                                const nextI = ((y + dy) * width + (x + dx + 1)) * 4;
-                                const nextBrightness = (data[nextI] + data[nextI + 1] + data[nextI + 2]) / 3;
-                                if (Math.abs(brightness - nextBrightness) > 30) edgeCount++;
-                            }
-                        }
-                    }
-                    
-                    const avgBrightness = totalBrightness / (gridSize * gridSize);
-                    
-                    // Detect person-like objects
-                    if (avgBrightness > minBrightness && edgeCount > 20) {
-                        detected.push({
-                            x: x,
-                            y: y,
-                            width: gridSize,
-                            height: gridSize,
-                            centroid: { x: x + gridSize / 2, y: y + gridSize / 2 }
-                        });
-                    }
-                }
-            }
-            
-            return detected;
-        }
-
-        // Update tracked objects using centroid tracking
-        function updateTracking(detections) {
-            if (trackedObjects.size === 0) {
-                // Register all new objects
-                detections.forEach(det => {
-                    trackedObjects.set(nextId++, {
-                        centroid: det.centroid,
-                        bbox: { x: det.x, y: det.y, w: det.width, h: det.height },
-                        history: [det.centroid],
-                        disappeared: 0
-                    });
-                });
-                return;
-            }
-            
-            if (detections.length === 0) {
-                // Mark all as disappeared
-                trackedObjects.forEach((obj, id) => {
-                    obj.disappeared++;
-                    if (obj.disappeared > 10) trackedObjects.delete(id);
-                });
-                return;
-            }
-            
-            // Match detections to existing objects
-            const existingIds = Array.from(trackedObjects.keys());
-            const distances = [];
-            
-            existingIds.forEach(id => {
-                const obj = trackedObjects.get(id);
-                detections.forEach((det, detIdx) => {
-                    const dist = Math.hypot(
-                        obj.centroid.x - det.centroid.x,
-                        obj.centroid.y - det.centroid.y
-                    );
-                    distances.push({ id, detIdx, dist });
-                });
-            });
-            
-            // Sort by distance and assign
-            distances.sort((a, b) => a.dist - b.dist);
-            const usedIds = new Set();
-            const usedDets = new Set();
-            
-            distances.forEach(({ id, detIdx, dist }) => {
-                if (!usedIds.has(id) && !usedDets.has(detIdx) && dist < 100) {
-                    const det = detections[detIdx];
-                    const obj = trackedObjects.get(id);
-                    obj.centroid = det.centroid;
-                    obj.bbox = { x: det.x, y: det.y, w: det.width, h: det.height };
-                    obj.history.push(det.centroid);
-                    if (obj.history.length > 20) obj.history.shift();
-                    obj.disappeared = 0;
-                    usedIds.add(id);
-                    usedDets.add(detIdx);
-                }
-            });
-            
-            // Register new objects
-            detections.forEach((det, idx) => {
-                if (!usedDets.has(idx)) {
-                    trackedObjects.set(nextId++, {
-                        centroid: det.centroid,
-                        bbox: { x: det.x, y: det.y, w: det.width, h: det.height },
-                        history: [det.centroid],
-                        disappeared: 0
-                    });
-                }
-            });
-            
-            // Remove disappeared objects
-            trackedObjects.forEach((obj, id) => {
-                if (!usedIds.has(id)) {
-                    obj.disappeared++;
-                    if (obj.disappeared > 10) {
-                        trackedObjects.delete(id);
-                        if (selectedPerson === id) selectedPerson = null;
-                    }
-                }
-            });
-        }
-
-        // Generate movement command
-        function generateCommand(centroid, prevCentroid) {
-            if (!prevCentroid) return 'IDLE';
-            
-            const dx = centroid.x - prevCentroid.x;
-            const dy = centroid.y - prevCentroid.y;
-            const threshold = 10;
-            
-            if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
-                return 'IDLE';
-            }
-            
-            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-            
-            // Determine primary direction
-            if (Math.abs(dx) > Math.abs(dy)) {
-                return dx > 0 ? 'RIGHT ➡️' : 'LEFT ⬅️';
-            } else {
-                return dy > 0 ? 'FORWARD ⬇️' : 'BACK ⬆️';
-            }
-        }
-
-        // Calculate speed
-        function calculateSpeed(history) {
-            if (history.length < 2) return 0;
-            const recent = history.slice(-5);
-            let totalDist = 0;
-            for (let i = 1; i < recent.length; i++) {
-                totalDist += Math.hypot(
-                    recent[i].x - recent[i-1].x,
-                    recent[i].y - recent[i-1].y
-                );
-            }
-            return Math.round(totalDist * 6); // Approximate px/s
-        }
-
-        // Add to movement history
-        function addToHistory(command, position) {
-            const historyDiv = document.getElementById('history');
-            const item = document.createElement('div');
-            item.className = 'movement-item';
-            item.innerHTML = `
-                <span>${command}</span>
-                <span style="color: #00d9ff;">${position.x.toFixed(0)}, ${position.y.toFixed(0)}</span>
-            `;
-            historyDiv.insertBefore(item, historyDiv.firstChild);
-            
-            if (historyDiv.children.length > 10) {
-                historyDiv.removeChild(historyDiv.lastChild);
-            }
-        }
-
-        // Process frame
-        function processFrame() {
-            if (!tracking) return;
-            
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            
-            // Detect persons
-            const detections = detectPersons(imageData);
-            
-            // Update tracking
-            updateTracking(detections);
-            
-            // Draw all tracked objects
-            trackedObjects.forEach((obj, id) => {
-                const isSelected = id === selectedPerson;
-                
-                // Draw bounding box
-                ctx.strokeStyle = isSelected ? '#00ff88' : '#00d9ff';
-                ctx.lineWidth = isSelected ? 4 : 2;
-                ctx.strokeRect(obj.bbox.x, obj.bbox.y, obj.bbox.w, obj.bbox.h);
-                
-                // Draw centroid
-                ctx.fillStyle = isSelected ? '#00ff88' : '#00d9ff';
-                ctx.beginPath();
-                ctx.arc(obj.centroid.x, obj.centroid.y, 6, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // Draw ID
-                ctx.fillStyle = isSelected ? '#00ff88' : '#00d9ff';
-                ctx.font = 'bold 16px Arial';
-                ctx.fillText(`ID: ${id}`, obj.bbox.x, obj.bbox.y - 10);
-                
-                // Draw trail for selected person
-                if (isSelected && obj.history.length > 1) {
-                    ctx.strokeStyle = '#00ff88';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(obj.history[0].x, obj.history[0].y);
-                    for (let i = 1; i < obj.history.length; i++) {
-                        ctx.lineTo(obj.history[i].x, obj.history[i].y);
-                    }
-                    ctx.stroke();
-                }
-            });
-            
-            // Update stats for selected person
-            if (selectedPerson && trackedObjects.has(selectedPerson)) {
-                const obj = trackedObjects.get(selectedPerson);
-                document.getElementById('posX').textContent = obj.centroid.x.toFixed(0);
-                document.getElementById('posY').textContent = obj.centroid.y.toFixed(0);
-                
-                const speed = calculateSpeed(obj.history);
-                document.getElementById('speed').textContent = speed + ' px/s';
-                
-                // Generate command
-                if (obj.history.length > 1) {
-                    const prevCentroid = obj.history[obj.history.length - 2];
-                    const command = generateCommand(obj.centroid, prevCentroid);
-                    const commandEl = document.getElementById('command');
-                    if (commandEl.textContent !== command) {
-                        commandEl.textContent = command;
-                        if (command !== 'IDLE') {
-                            addToHistory(command, obj.centroid);
-                        }
-                    }
-                }
-            } else {
-                document.getElementById('command').textContent = 'IDLE';
-            }
-            
-            requestAnimationFrame(processFrame);
-        }
-    </script>
+window.onload=init;
+</script>
 </body>
 </html>
