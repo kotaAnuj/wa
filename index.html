@@ -2,332 +2,431 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ESP32 Person Follower</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Person Follower Bot</title>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:monospace;background:#0a0a0a;color:#0f0;overflow:hidden}
-#main{display:flex;height:100vh}
-#left{width:320px;padding:15px;overflow-y:auto;background:#111}
-#center{flex:1;display:flex;justify-content:center;align-items:center;position:relative}
-.box{background:#000;border:2px solid #0a0;padding:12px;margin-bottom:12px;border-radius:6px}
-h3{color:#0ff;font-size:14px;margin-bottom:8px}
-input,button{font:inherit;padding:8px;margin:4px 0;width:100%;border-radius:4px;border:1px solid #0a0}
-input{background:#000;color:#0f0;font-size:12px}
-button{background:#0a0;color:#000;font-weight:bold;cursor:pointer}
-button:hover{background:#0f0}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:Arial,sans-serif;background:#000;color:#fff;overflow:hidden;touch-action:none}
+#app{display:flex;flex-direction:column;height:100vh}
+#top{padding:10px;background:#111;border-bottom:2px solid #0f0}
+#top h2{font-size:18px;margin-bottom:8px;color:#0f0}
+.row{display:flex;gap:8px;margin:5px 0;align-items:center}
+input{flex:1;padding:10px;font-size:16px;background:#222;color:#0f0;border:1px solid #0a0;border-radius:4px}
+button{padding:10px 15px;font-size:14px;font-weight:bold;background:#0a0;color:#000;border:none;border-radius:4px;cursor:pointer}
+button:active{background:#0f0}
 button:disabled{opacity:0.3}
-.btn-stop{background:#a00!important}
-.btn-stop:hover{background:#f00!important}
-.s{display:flex;justify-content:space-between;font-size:11px;margin:3px 0}
-.ok{color:#0f0}
-.err{color:#f00}
-.warn{color:#fa0}
-#video{display:none}
-canvas{border:3px solid #0a0;max-width:100%;max-height:85vh;box-shadow:0 0 20px rgba(0,255,0,0.3)}
-#cmd{position:absolute;bottom:20px;background:rgba(0,200,0,0.95);color:#000;padding:15px 30px;border-radius:10px;font-size:32px;font-weight:bold;border:3px solid #0f0;box-shadow:0 0 30px #0f0}
-#remote{position:absolute;top:20px;right:20px;background:rgba(0,0,0,0.9);border:2px solid #0a0;padding:15px;border-radius:8px;min-width:200px}
-#remote h3{text-align:center;margin-bottom:10px}
-.rBtn{width:60px;height:60px;margin:3px;font-size:20px;border-radius:8px}
-.rRow{display:flex;justify-content:center}
-#cmdVis{margin-top:10px;padding:10px;background:#000;border:1px solid #0a0;border-radius:4px;text-align:center}
-.cmdItem{font-size:11px;margin:2px 0;padding:3px;background:#001a00;border-radius:3px}
-.cmdActive{background:#0a0;color:#000;font-weight:bold}
-label{font-size:11px;display:block;margin:5px 0}
-input[type=range]{height:20px}
+.info{font-size:13px;color:#0f0;margin:3px 0}
+#videoBox{flex:1;position:relative;display:flex;justify-content:center;align-items:center;background:#000}
+video{display:none}
+canvas{max-width:100%;max-height:100%;border:2px solid #0a0}
+#cmdBig{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,200,0,0.95);color:#000;padding:30px 50px;border-radius:15px;font-size:48px;font-weight:bold;border:4px solid #0f0;box-shadow:0 0 40px #0f0;pointer-events:none;z-index:10}
+#status{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.8);padding:10px;border-radius:6px;font-size:12px;border:1px solid #0a0}
+#status div{margin:3px 0}
+#cmdPanel{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(0,0,0,0.9);padding:15px;border-radius:8px;border:2px solid #0a0;max-height:200px;overflow-y:auto}
+#cmdPanel h3{font-size:16px;color:#0f0;margin-bottom:8px}
+.cmdLog{font-size:13px;margin:4px 0;padding:6px;background:#001a00;border-radius:4px;border-left:3px solid #0a0}
+.cmdLog.active{background:#0a0;color:#000;font-weight:bold;animation:pulse 0.5s}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.st{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.st.on{background:#0f0}
+.st.off{background:#f00}
 </style>
 </head>
 <body>
-<div id="main">
-<div id="left">
-<div class="box">
-<h3>🤖 ESP32</h3>
-<input id="ip" placeholder="IP: 192.168.1.100" value="192.168.43.104">
-<button onclick="connect()">Connect</button>
-<button onclick="test()">Test Motors</button>
-<div class="s">Status: <span id="st" class="warn">OFF</span></div>
-<div class="s">Ping: <span id="ping">-</span>ms</div>
-<div class="s">Sent: <span id="cnt">0</span></div>
+<div id="app">
+<div id="top">
+<h2>🤖 Person Following Bot</h2>
+<div class="row">
+<input id="espIP" type="text" placeholder="ESP32 IP (192.168.x.x)" value="192.168.43.104">
+<button onclick="connectESP()" id="connBtn">Connect</button>
 </div>
-
-<div class="box">
-<h3>📹 Camera</h3>
-<button id="camBtn" onclick="startCam()">Start Camera</button>
-<button id="trkBtn" onclick="track()" disabled>Start Track</button>
-<button onclick="clear()">Clear Path</button>
-<div class="s">Cam: <span id="cSt" class="warn">OFF</span></div>
-<div class="s">Pose: <span id="pSt" class="warn">Wait</span></div>
-<div class="s">FPS: <span id="fps">0</span></div>
+<div class="row">
+<button onclick="startCamera()" id="camBtn">Start Camera</button>
+<button onclick="toggleTracking()" id="trkBtn" disabled>Start Tracking</button>
+<button onclick="stopAll()" class="btn-stop" style="background:#a00">STOP ALL</button>
 </div>
-
-<div class="box">
-<h3>⚙️ Settings</h3>
-<label>Drive: <input type="range" id="drv" min="30" max="100" value="60" oninput="u(this)"><span>60</span></label>
-<label>Steer: <input type="range" id="str" min="30" max="100" value="70" oninput="u(this)"><span>70</span></label>
-<label>Threshold: <input type="range" id="thr" min="20" max="100" value="50" oninput="u(this)"><span>50</span></label>
-<label>Rate(ms): <input type="range" id="rate" min="50" max="300" value="120" oninput="u(this)"><span>120</span></label>
-</div>
-
-<div class="box">
-<h3>📊 ESP Data</h3>
-<div class="s">Distance: <span id="dist">-</span>cm</div>
-<div class="s">Last: <span id="last">-</span></div>
+<div class="info">
+<span class="st" id="espSt"></span>ESP: <span id="espTxt">Disconnected</span> | 
+<span class="st" id="camSt"></span>Cam: <span id="camTxt">Off</span> | 
+<span class="st" id="trkSt"></span>Track: <span id="trkTxt">Off</span> | 
+FPS: <span id="fps">0</span>
 </div>
 </div>
 
-<div id="center">
+<div id="videoBox">
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
-<div id="cmd">READY</div>
-<div id="remote">
-<h3>🎮 REMOTE</h3>
-<div class="rRow"><button class="rBtn" onclick="m(60,0)">↑</button></div>
-<div class="rRow">
-<button class="rBtn" onclick="m(0,-70)">←</button>
-<button class="rBtn btn-stop" onclick="m(0,0)">■</button>
-<button class="rBtn" onclick="m(0,70)">→</button>
+<div id="cmdBig">READY</div>
+<div id="status">
+<div><b>Person Detection:</b> <span id="personSt">Waiting...</span></div>
+<div><b>Commands Sent:</b> <span id="cmdCnt">0</span></div>
+<div><b>Distance:</b> <span id="dist">-</span> cm</div>
 </div>
-<div class="rRow"><button class="rBtn" onclick="m(-50,0)">↓</button></div>
-<div id="cmdVis">
-<div class="cmdItem" id="cF">FRONT: 0</div>
-<div class="cmdItem" id="cB">BACK: 0</div>
-<div class="cmdItem" id="cL">LEFT: 0</div>
-<div class="cmdItem" id="cR">RIGHT: 0</div>
-<div class="cmdItem" id="cS">STOP: 0</div>
-</div>
+<div id="cmdPanel">
+<h3>📡 Command Stream (Live)</h3>
+<div id="cmdList"></div>
 </div>
 </div>
 </div>
 
 <script>
-let v,c,ctx,pose,cam,trk=0,ip='',conn=0,path=[],lastP=null,fc=0,lt=Date.now(),cc=0,lc='STOP',lct=0,les=0;
-const cmdC={FRONT:0,BACK:0,LEFT:0,RIGHT:0,STOP:0};
+let video,canvas,ctx,pose,camera,isTracking=false,espIP='',espConnected=false;
+let path=[],lastPos=null,frameCount=0,lastTime=Date.now();
+let commandCount=0,lastCommand='READY',lastCommandTime=0,lastSendTime=0;
+let cameraActive=false,poseReady=false;
 
-function u(e){e.nextElementSibling.textContent=e.value}
-function upd(id,t,cl){const e=document.getElementById(id);e.textContent=t;e.className=cl}
+const config={
+  driveSpeed:60,
+  steerSpeed:70,
+  threshold:45,
+  updateRate:120,
+  minMovement:30
+};
 
-async function connect(){
-ip=document.getElementById('ip').value.trim();
-if(!ip){alert('Enter IP!');return}
-try{
-const s=Date.now();
-const r=await fetch(`http://${ip}/status`,{timeout:3000});
-const d=await r.json();
-document.getElementById('ping').textContent=Date.now()-s;
-conn=1;
-upd('st','ON','ok');
-upd('dist',d.distance.toFixed(1));
-}catch(e){
-conn=0;
-upd('st','ERR','err');
-alert('Connect failed!\n1. Check IP\n2. ESP32 ON?\n3. Same WiFi?');
-}
-}
-
-async function test(){
-if(!ip){alert('Connect first!');return}
-try{
-await fetch(`http://${ip}/test?drive=40&steer=0`);
-await sleep(700);
-await fetch(`http://${ip}/test?drive=0&steer=60`);
-await sleep(700);
-await fetch(`http://${ip}/test?drive=0&steer=-60`);
-await sleep(700);
-await fetch(`http://${ip}/stop`);
-}catch(e){alert('Test failed!')}
+function log(msg,isCmd=false){
+  const list=document.getElementById('cmdList');
+  const div=document.createElement('div');
+  div.className='cmdLog'+(isCmd?' active':'');
+  div.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
+  list.insertBefore(div,list.firstChild);
+  if(list.children.length>20)list.removeChild(list.lastChild);
+  setTimeout(()=>div.classList.remove('active'),500);
 }
 
-async function send(d,s){
-if(!conn||!ip)return;
-const n=Date.now();
-if(n-les<parseInt(document.getElementById('rate').value))return;
-les=n;
-try{
-fetch(`http://${ip}/control?drive=${d}&steer=${s}`,{method:'GET',mode:'no-cors'}).catch(()=>{});
-cc++;
-document.getElementById('cnt').textContent=cc;
-document.getElementById('last').textContent=`D:${d} S:${s}`;
-}catch(e){}
+function updateUI(){
+  document.getElementById('espSt').className='st '+(espConnected?'on':'off');
+  document.getElementById('camSt').className='st '+(cameraActive?'on':'off');
+  document.getElementById('trkSt').className='st '+(isTracking?'on':'off');
+  document.getElementById('espTxt').textContent=espConnected?'Connected':'Disconnected';
+  document.getElementById('camTxt').textContent=cameraActive?'Active':'Off';
+  document.getElementById('trkTxt').textContent=isTracking?'TRACKING':'Off';
 }
 
-function m(d,s){
-if(!conn){alert('Connect ESP32!');return}
-send(d,s);
-let cmd='STOP';
-if(d>0)cmd='FRONT';
-else if(d<0)cmd='BACK';
-else if(s<0)cmd='LEFT';
-else if(s>0)cmd='RIGHT';
-cmdC[cmd]++;
-updateCmdVis(cmd);
-document.getElementById('cmd').textContent=cmd;
+async function connectESP(){
+  espIP=document.getElementById('espIP').value.trim();
+  if(!espIP){
+    alert('❌ Enter ESP32 IP address!');
+    return;
+  }
+  
+  document.getElementById('connBtn').disabled=true;
+  document.getElementById('connBtn').textContent='Connecting...';
+  
+  try{
+    const response=await fetch(`http://${espIP}/status`,{timeout:3000});
+    const data=await response.json();
+    espConnected=true;
+    updateUI();
+    log('✅ ESP32 Connected! Distance: '+data.distance+'cm');
+    document.getElementById('connBtn').textContent='Connected';
+    document.getElementById('dist').textContent=data.distance.toFixed(1);
+  }catch(err){
+    espConnected=false;
+    updateUI();
+    log('❌ Connection Failed: '+err.message);
+    alert('❌ Failed to connect!\n\n1. Check IP address\n2. ESP32 powered ON?\n3. Same WiFi network?');
+    document.getElementById('connBtn').disabled=false;
+    document.getElementById('connBtn').textContent='Retry';
+  }
 }
 
-function updateCmdVis(active){
-['cF','cB','cL','cR','cS'].forEach(id=>{
-const e=document.getElementById(id);
-e.className='cmdItem';
-});
-const map={FRONT:'cF',BACK:'cB',LEFT:'cL',RIGHT:'cR',STOP:'cS'};
-const e=document.getElementById(map[active]);
-e.className='cmdItem cmdActive';
-document.getElementById('cF').textContent='FRONT: '+cmdC.FRONT;
-document.getElementById('cB').textContent='BACK: '+cmdC.BACK;
-document.getElementById('cL').textContent='LEFT: '+cmdC.LEFT;
-document.getElementById('cR').textContent='RIGHT: '+cmdC.RIGHT;
-document.getElementById('cS').textContent='STOP: '+cmdC.STOP;
+async function sendCommand(drive,steer){
+  if(!espConnected||!espIP)return false;
+  
+  const now=Date.now();
+  if(now-lastSendTime<config.updateRate)return false;
+  lastSendTime=now;
+  
+  try{
+    fetch(`http://${espIP}/control?drive=${drive}&steer=${steer}`,{
+      method:'GET',
+      mode:'no-cors'
+    }).catch(()=>{});
+    
+    commandCount++;
+    document.getElementById('cmdCnt').textContent=commandCount;
+    return true;
+  }catch(err){
+    log('❌ Send error: '+err.message);
+    return false;
+  }
 }
-
-function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
 async function init(){
-v=document.getElementById('video');
-c=document.getElementById('canvas');
-ctx=c.getContext('2d');
-pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
-pose.setOptions({modelComplexity:0,smoothLandmarks:1,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-pose.onResults(onRes);
-upd('pSt','Ready','ok');
+  video=document.getElementById('video');
+  canvas=document.getElementById('canvas');
+  ctx=canvas.getContext('2d');
+  
+  pose=new Pose({
+    locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+  
+  pose.setOptions({
+    modelComplexity:0,
+    smoothLandmarks:true,
+    minDetectionConfidence:0.5,
+    minTrackingConfidence:0.5
+  });
+  
+  pose.onResults(onPoseResults);
+  poseReady=true;
+  log('✅ Pose detection model loaded');
 }
 
-async function startCam(){
-try{
-upd('cSt','Start...','warn');
-const s=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:0});
-v.srcObject=s;
-await new Promise(r=>{v.onloadedmetadata=()=>{c.width=v.videoWidth;c.height=v.videoHeight;r()}});
-await v.play();
-upd('cSt','ON','ok');
-cam=new Camera(v,{onFrame:async()=>{if(pose&&cam)await pose.send({image:v})},width:640,height:480});
-await cam.start();
-document.getElementById('camBtn').disabled=1;
-document.getElementById('trkBtn').disabled=0;
-}catch(e){
-upd('cSt','ERR','err');
-alert('Camera Error!\n1. Allow permission\n2. Check camera\n3. Refresh');
-}
-}
-
-function track(){
-trk=!trk;
-const b=document.getElementById('trkBtn');
-if(trk){
-if(!conn){alert('Connect ESP32!');trk=0;return}
-b.textContent='Stop Track';
-b.style.background='#f00';
-upd('pSt','TRACK','ok');
-}else{
-b.textContent='Start Track';
-b.style.background='#0a0';
-upd('pSt','Stop','warn');
-send(0,0);
-}
-}
-
-function onRes(r){
-if(!c||!ctx)return;
-ctx.save();
-ctx.clearRect(0,0,c.width,c.height);
-ctx.drawImage(r.image,0,0,c.width,c.height);
-if(r.poseLandmarks){
-const l=r.poseLandmarks;
-const lh=l[23],rh=l[24];
-if(lh&&rh){
-const cx=(lh.x+rh.x)/2*c.width;
-const cy=(lh.y+rh.y)/2*c.height;
-const cp={x:cx,y:cy};
-if(lastP&&trk){
-path.push({x1:lastP.x,y1:lastP.y,x2:cp.x,y2:cp.y});
-if(path.length>50)path.shift();
-const dx=cp.x-lastP.x;
-const dy=cp.y-lastP.y;
-const n=Date.now();
-const thr=parseInt(document.getElementById('thr').value);
-if(n-lct>parseInt(document.getElementById('rate').value)){
-let cmd='',drv=0,steer=0;
-const dSpd=parseInt(document.getElementById('drv').value);
-const sSpd=parseInt(document.getElementById('str').value);
-if(Math.abs(dx)>thr||Math.abs(dy)>thr){
-if(Math.abs(dx)>Math.abs(dy)){
-cmd=dx>0?'RIGHT':'LEFT';
-steer=dx>0?sSpd:-sSpd;
-drv=dSpd/2;
-}else{
-cmd=dy>0?'FRONT':'BACK';
-drv=dy>0?dSpd:-dSpd;
-steer=0;
-}
-}else{
-cmd='STOP';
-drv=0;steer=0;
-}
-if(cmd!==lc||cmd!=='STOP'){
-lc=cmd;
-lct=n;
-document.getElementById('cmd').textContent=cmd;
-cmdC[cmd]++;
-updateCmdVis(cmd);
-send(drv,steer);
-}
-}
-}
-lastP=cp;
-drawP();
-ctx.beginPath();
-ctx.arc(cx,cy,10,0,2*Math.PI);
-ctx.fillStyle='#0f0';
-ctx.fill();
-ctx.strokeStyle='#fff';
-ctx.lineWidth=2;
-ctx.stroke();
-}
-drawConnectors(ctx,l,POSE_CONNECTIONS,{color:'rgba(0,255,0,0.4)',lineWidth:2});
-drawLandmarks(ctx,l,{color:'rgba(0,255,255,0.5)',lineWidth:1,radius:3});
-}
-ctx.restore();
-fc++;
-const n=Date.now();
-if(n-lt>1000){
-document.getElementById('fps').textContent=fc;
-fc=0;
-lt=n;
-}
+async function startCamera(){
+  if(cameraActive)return;
+  
+  document.getElementById('camBtn').disabled=true;
+  document.getElementById('camBtn').textContent='Starting...';
+  
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        width:{ideal:640},
+        height:{ideal:480},
+        facingMode:'user'
+      },
+      audio:false
+    });
+    
+    video.srcObject=stream;
+    
+    await new Promise(resolve=>{
+      video.onloadedmetadata=()=>{
+        canvas.width=video.videoWidth;
+        canvas.height=video.videoHeight;
+        resolve();
+      };
+    });
+    
+    await video.play();
+    
+    camera=new Camera(video,{
+      onFrame:async()=>{
+        if(pose&&poseReady){
+          await pose.send({image:video});
+        }
+      },
+      width:640,
+      height:480
+    });
+    
+    await camera.start();
+    
+    cameraActive=true;
+    updateUI();
+    document.getElementById('camBtn').textContent='Camera ON';
+    document.getElementById('trkBtn').disabled=false;
+    log('✅ Camera started successfully');
+    
+  }catch(err){
+    cameraActive=false;
+    updateUI();
+    log('❌ Camera error: '+err.message);
+    alert('❌ Camera Error!\n\n1. Allow camera permission\n2. Check camera is working\n3. Refresh page and try again');
+    document.getElementById('camBtn').disabled=false;
+    document.getElementById('camBtn').textContent='Retry Camera';
+  }
 }
 
-function drawP(){
-if(path.length<1)return;
-ctx.strokeStyle='#0f0';
-ctx.lineWidth=3;
-ctx.shadowColor='#0f0';
-ctx.shadowBlur=10;
-ctx.beginPath();
-path.forEach((s,i)=>{
-if(i===0)ctx.moveTo(s.x1,s.y1);
-ctx.lineTo(s.x2,s.y2);
-});
-ctx.stroke();
-ctx.shadowBlur=0;
+function toggleTracking(){
+  if(!espConnected){
+    alert('❌ Connect to ESP32 first!');
+    return;
+  }
+  
+  if(!cameraActive){
+    alert('❌ Start camera first!');
+    return;
+  }
+  
+  isTracking=!isTracking;
+  
+  if(isTracking){
+    document.getElementById('trkBtn').textContent='Stop Tracking';
+    document.getElementById('trkBtn').style.background='#f00';
+    document.getElementById('cmdBig').textContent='TRACKING...';
+    log('🎯 TRACKING STARTED - Bot will follow person');
+  }else{
+    document.getElementById('trkBtn').textContent='Start Tracking';
+    document.getElementById('trkBtn').style.background='#0a0';
+    document.getElementById('cmdBig').textContent='STOPPED';
+    sendCommand(0,0);
+    log('⏹️ Tracking stopped');
+  }
+  
+  updateUI();
 }
 
-function clear(){
-path=[];
-lastP=null;
-lc='STOP';
-document.getElementById('cmd').textContent='READY';
-send(0,0);
+function stopAll(){
+  isTracking=false;
+  sendCommand(0,0);
+  document.getElementById('cmdBig').textContent='STOPPED';
+  document.getElementById('trkBtn').textContent='Start Tracking';
+  document.getElementById('trkBtn').style.background='#0a0';
+  updateUI();
+  log('🛑 EMERGENCY STOP');
+}
+
+function onPoseResults(results){
+  if(!canvas||!ctx)return;
+  
+  ctx.save();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+  
+  if(results.poseLandmarks){
+    const landmarks=results.poseLandmarks;
+    const leftHip=landmarks[23];
+    const rightHip=landmarks[24];
+    const nose=landmarks[0];
+    
+    if(leftHip&&rightHip&&leftHip.visibility>0.5&&rightHip.visibility>0.5){
+      const centerX=(leftHip.x+rightHip.x)/2*canvas.width;
+      const centerY=(leftHip.y+rightHip.y)/2*canvas.height;
+      const currentPos={x:centerX,y:centerY};
+      
+      document.getElementById('personSt').textContent='✅ Person Detected';
+      document.getElementById('personSt').style.color='#0f0';
+      
+      if(isTracking&&lastPos){
+        path.push({x1:lastPos.x,y1:lastPos.y,x2:currentPos.x,y2:currentPos.y});
+        if(path.length>80)path.shift();
+        
+        const dx=currentPos.x-lastPos.x;
+        const dy=currentPos.y-lastPos.y;
+        const movement=Math.sqrt(dx*dx+dy*dy);
+        
+        const now=Date.now();
+        if(now-lastCommandTime>config.updateRate&&movement>config.minMovement){
+          
+          let command='';
+          let drive=0,steer=0;
+          
+          if(Math.abs(dx)>Math.abs(dy)){
+            if(dx>config.threshold){
+              command='RIGHT';
+              steer=config.steerSpeed;
+              drive=config.driveSpeed/2;
+            }else if(dx<-config.threshold){
+              command='LEFT';
+              steer=-config.steerSpeed;
+              drive=config.driveSpeed/2;
+            }
+          }else{
+            if(dy>config.threshold){
+              command='FRONT';
+              drive=config.driveSpeed;
+              steer=0;
+            }else if(dy<-config.threshold){
+              command='BACK';
+              drive=-config.driveSpeed;
+              steer=0;
+            }
+          }
+          
+          if(command){
+            const sent=sendCommand(drive,steer);
+            if(sent){
+              lastCommand=command;
+              lastCommandTime=now;
+              document.getElementById('cmdBig').textContent=command;
+              log(`➤ ${command} → Drive:${drive} Steer:${steer}`,true);
+            }
+          }
+        }else if(movement<config.minMovement){
+          if(lastCommand!=='STOP'){
+            sendCommand(0,0);
+            lastCommand='STOP';
+            document.getElementById('cmdBig').textContent='STOP';
+            log('⏸️ Person stopped - STOP command',true);
+          }
+        }
+      }
+      
+      lastPos=currentPos;
+      
+      drawPath();
+      
+      ctx.beginPath();
+      ctx.arc(centerX,centerY,15,0,2*Math.PI);
+      ctx.fillStyle='rgba(0,255,0,0.5)';
+      ctx.fill();
+      ctx.strokeStyle='#0f0';
+      ctx.lineWidth=3;
+      ctx.stroke();
+      
+      ctx.font='bold 16px Arial';
+      ctx.fillStyle='#0f0';
+      ctx.fillText('PERSON',centerX-30,centerY-25);
+      
+    }else{
+      document.getElementById('personSt').textContent='❌ No Person Detected';
+      document.getElementById('personSt').style.color='#f00';
+    }
+    
+    drawConnectors(ctx,landmarks,POSE_CONNECTIONS,{
+      color:'rgba(0,255,0,0.3)',
+      lineWidth:2
+    });
+    drawLandmarks(ctx,landmarks,{
+      color:'rgba(0,255,255,0.4)',
+      lineWidth:1,
+      radius:3
+    });
+  }else{
+    document.getElementById('personSt').textContent='⚠️ Waiting for person...';
+    document.getElementById('personSt').style.color='#fa0';
+  }
+  
+  ctx.restore();
+  
+  frameCount++;
+  const now=Date.now();
+  if(now-lastTime>1000){
+    document.getElementById('fps').textContent=frameCount;
+    frameCount=0;
+    lastTime=now;
+  }
+}
+
+function drawPath(){
+  if(path.length<2)return;
+  
+  ctx.strokeStyle='#0f0';
+  ctx.lineWidth=4;
+  ctx.shadowColor='#0f0';
+  ctx.shadowBlur=10;
+  ctx.beginPath();
+  
+  path.forEach((segment,i)=>{
+    if(i===0)ctx.moveTo(segment.x1,segment.y1);
+    ctx.lineTo(segment.x2,segment.y2);
+  });
+  
+  ctx.stroke();
+  ctx.shadowBlur=0;
+  
+  path.forEach((segment,i)=>{
+    const opacity=0.3+(i/path.length)*0.7;
+    ctx.beginPath();
+    ctx.arc(segment.x2,segment.y2,5,0,2*Math.PI);
+    ctx.fillStyle=`rgba(0,255,0,${opacity})`;
+    ctx.fill();
+  });
 }
 
 setInterval(async()=>{
-if(conn&&ip){
-try{
-const r=await fetch(`http://${ip}/data`);
-const d=await r.json();
-upd('dist',d.distance.toFixed(1));
-}catch(e){}
-}
+  if(espConnected&&espIP){
+    try{
+      const response=await fetch(`http://${espIP}/data`);
+      const data=await response.json();
+      document.getElementById('dist').textContent=data.distance.toFixed(1);
+    }catch(err){}
+  }
 },1000);
 
 window.onload=init;
