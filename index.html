@@ -284,84 +284,136 @@ function onPoseResults(results){
     const rightHip=landmarks[24];
     const nose=landmarks[0];
     
-    if(leftHip&&rightHip&&leftHip.visibility>0.5&&rightHip.visibility>0.5){
+    if(leftHip&&rightHip){
       const centerX=(leftHip.x+rightHip.x)/2*canvas.width;
       const centerY=(leftHip.y+rightHip.y)/2*canvas.height;
       const currentPos={x:centerX,y:centerY};
       
-      document.getElementById('personSt').textContent='✅ Person Detected';
+      document.getElementById('personSt').textContent='✅ Person Detected at ('+Math.round(centerX)+','+Math.round(centerY)+')';
       document.getElementById('personSt').style.color='#0f0';
       
-      if(isTracking&&lastPos){
-        path.push({x1:lastPos.x,y1:lastPos.y,x2:currentPos.x,y2:currentPos.y});
+      if(isTracking){
+        const screenCenterX=canvas.width/2;
+        const screenCenterY=canvas.height/2;
+        
+        const deltaX=currentPos.x-screenCenterX;
+        const deltaY=currentPos.y-screenCenterY;
+        
+        const distance=Math.sqrt(deltaX*deltaX+deltaY*deltaY);
+        
+        const xRatio=deltaX/canvas.width;
+        const yRatio=deltaY/canvas.height;
+        
+        path.push({x1:screenCenterX,y1:screenCenterY,x2:currentPos.x,y2:currentPos.y});
         if(path.length>80)path.shift();
         
-        const dx=currentPos.x-lastPos.x;
-        const dy=currentPos.y-lastPos.y;
-        const movement=Math.sqrt(dx*dx+dy*dy);
-        
         const now=Date.now();
-        if(now-lastCommandTime>config.updateRate&&movement>config.minMovement){
+        if(now-lastCommandTime>config.updateRate){
           
           let command='';
           let drive=0,steer=0;
           
-          if(Math.abs(dx)>Math.abs(dy)){
-            if(dx>config.threshold){
-              command='RIGHT';
-              steer=config.steerSpeed;
-              drive=config.driveSpeed/2;
-            }else if(dx<-config.threshold){
-              command='LEFT';
-              steer=-config.steerSpeed;
-              drive=config.driveSpeed/2;
+          const xThreshold=canvas.width*0.15;
+          const yThreshold=canvas.height*0.15;
+          
+          if(Math.abs(deltaX)>xThreshold||Math.abs(deltaY)>yThreshold){
+            
+            if(Math.abs(xRatio)>Math.abs(yRatio)){
+              if(deltaX>xThreshold){
+                command='RIGHT';
+                steer=Math.min(100,Math.round(Math.abs(xRatio)*config.steerSpeed*2));
+                drive=config.driveSpeed/2;
+              }else if(deltaX<-xThreshold){
+                command='LEFT';
+                steer=-Math.min(100,Math.round(Math.abs(xRatio)*config.steerSpeed*2));
+                drive=config.driveSpeed/2;
+              }
+            }else{
+              if(deltaY>yThreshold){
+                command='FRONT';
+                drive=Math.min(100,Math.round(Math.abs(yRatio)*config.driveSpeed*1.5));
+                steer=0;
+              }else if(deltaY<-yThreshold){
+                command='BACK';
+                drive=-Math.min(100,Math.round(Math.abs(yRatio)*config.driveSpeed*1.5));
+                steer=0;
+              }
+            }
+            
+            if(command){
+              const sent=sendCommand(drive,steer);
+              if(sent){
+                lastCommand=command;
+                lastCommandTime=now;
+                document.getElementById('cmdBig').textContent=command;
+                log(`➤ ${command} | D:${drive} S:${steer} | Dist:${Math.round(distance)}px | Ratio X:${xRatio.toFixed(2)} Y:${yRatio.toFixed(2)}`,true);
+              }
             }
           }else{
-            if(dy>config.threshold){
-              command='FRONT';
-              drive=config.driveSpeed;
-              steer=0;
-            }else if(dy<-config.threshold){
-              command='BACK';
-              drive=-config.driveSpeed;
-              steer=0;
+            if(lastCommand!=='CENTERED'&&distance<100){
+              sendCommand(0,0);
+              lastCommand='CENTERED';
+              document.getElementById('cmdBig').textContent='CENTERED';
+              log('✓ Person centered - Distance:'+Math.round(distance)+'px',true);
             }
-          }
-          
-          if(command){
-            const sent=sendCommand(drive,steer);
-            if(sent){
-              lastCommand=command;
-              lastCommandTime=now;
-              document.getElementById('cmdBig').textContent=command;
-              log(`➤ ${command} → Drive:${drive} Steer:${steer}`,true);
-            }
-          }
-        }else if(movement<config.minMovement){
-          if(lastCommand!=='STOP'){
-            sendCommand(0,0);
-            lastCommand='STOP';
-            document.getElementById('cmdBig').textContent='STOP';
-            log('⏸️ Person stopped - STOP command',true);
           }
         }
       }
       
       lastPos=currentPos;
       
+      const screenCenterX=canvas.width/2;
+      const screenCenterY=canvas.height/2;
+      
+      ctx.strokeStyle='#f00';
+      ctx.lineWidth=2;
+      ctx.setLineDash([5,5]);
+      ctx.beginPath();
+      ctx.moveTo(0,screenCenterY);
+      ctx.lineTo(canvas.width,screenCenterY);
+      ctx.moveTo(screenCenterX,0);
+      ctx.lineTo(screenCenterX,canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      ctx.beginPath();
+      ctx.arc(screenCenterX,screenCenterY,10,0,2*Math.PI);
+      ctx.strokeStyle='#f00';
+      ctx.lineWidth=2;
+      ctx.stroke();
+      
+      ctx.strokeStyle='#ff0';
+      ctx.lineWidth=3;
+      ctx.beginPath();
+      ctx.moveTo(screenCenterX,screenCenterY);
+      ctx.lineTo(centerX,centerY);
+      ctx.stroke();
+      
       drawPath();
       
       ctx.beginPath();
-      ctx.arc(centerX,centerY,15,0,2*Math.PI);
+      ctx.arc(centerX,centerY,20,0,2*Math.PI);
       ctx.fillStyle='rgba(0,255,0,0.5)';
       ctx.fill();
       ctx.strokeStyle='#0f0';
-      ctx.lineWidth=3;
+      ctx.lineWidth=4;
       ctx.stroke();
       
-      ctx.font='bold 16px Arial';
+      ctx.font='bold 20px Arial';
       ctx.fillStyle='#0f0';
-      ctx.fillText('PERSON',centerX-30,centerY-25);
+      ctx.strokeStyle='#000';
+      ctx.lineWidth=3;
+      ctx.strokeText('PERSON',centerX-45,centerY-30);
+      ctx.fillText('PERSON',centerX-45,centerY-30);
+      
+      const deltaX=Math.round(centerX-screenCenterX);
+      const deltaY=Math.round(centerY-screenCenterY);
+      const dist=Math.round(Math.sqrt(deltaX*deltaX+deltaY*deltaY));
+      
+      ctx.font='12px Arial';
+      ctx.fillStyle='#ff0';
+      ctx.fillText(`ΔX:${deltaX} ΔY:${deltaY}`,centerX-40,centerY+40);
+      ctx.fillText(`Dist:${dist}px`,centerX-40,centerY+55);
       
     }else{
       document.getElementById('personSt').textContent='❌ No Person Detected';
