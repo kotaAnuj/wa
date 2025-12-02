@@ -1,621 +1,310 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Person Follower Bot - UPGRADED</title>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<meta charset="utf-8" />
+<title>Fast & Reliable Person Tracker — EMA + Kalman + PID</title>
+
+<!-- TF and MoveNet -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+
 <style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:Arial,sans-serif;background:#000;color:#fff;overflow:hidden;touch-action:none}
-#app{display:flex;flex-direction:column;height:100vh}
-#top{padding:10px;background:#111;border-bottom:2px solid #0f0}
-#top h2{font-size:18px;margin-bottom:8px;color:#0f0}
-.row{display:flex;gap:8px;margin:5px 0;align-items:center}
-input{flex:1;padding:10px;font-size:16px;background:#222;color:#0f0;border:1px solid #0a0;border-radius:4px}
-button{padding:10px 15px;font-size:14px;font-weight:bold;background:#0a0;color:#000;border:none;border-radius:4px;cursor:pointer}
-button:active{background:#0f0}
-button:disabled{opacity:0.3}
-.info{font-size:13px;color:#0f0;margin:3px 0}
-#videoBox{flex:1;position:relative;display:flex;justify-content:center;align-items:center;background:#000}
-video{display:none}
-canvas{max-width:100%;max-height:100%;border:2px solid #0a0}
-#cmdBig{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,200,0,0.95);color:#000;padding:30px 50px;border-radius:15px;font-size:48px;font-weight:bold;border:4px solid #0f0;box-shadow:0 0 40px #0f0;pointer-events:none;z-index:10}
-#status{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.8);padding:10px;border-radius:6px;font-size:12px;border:1px solid #0a0}
-#status div{margin:3px 0}
-#cmdPanel{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(0,0,0,0.9);padding:15px;border-radius:8px;border:2px solid #0a0;max-height:200px;overflow-y:auto}
-#cmdPanel h3{font-size:16px;color:#0f0;margin-bottom:8px}
-.cmdLog{font-size:13px;margin:4px 0;padding:6px;background:#001a00;border-radius:4px;border-left:3px solid #0a0}
-.cmdLog.active{background:#0a0;color:#000;font-weight:bold;animation:pulse 0.5s}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
-.st{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
-.st.on{background:#0f0}
-.st.off{background:#f00}
-.debug-info{font-size:11px;color:#aaa;margin:2px 0}
+  :root{--bg:#000;--accent:#1eff7a}
+  html,body{height:100%; margin:0; background:var(--bg); color:var(--accent); font-family:system-ui,monospace}
+  video{display:none} /* hide the raw video element to reduce repaints */
+  canvas{position:absolute; inset:0; width:100vw; height:100vh; object-fit:cover}
+  #ui {position:absolute; left:8px; top:8px; background:rgba(0,0,0,0.45); padding:8px 10px; border-radius:8px}
+  #cmd {position:absolute; left:50%; transform:translateX(-50%); bottom:18px; background:rgba(0,0,0,0.6); padding:10px 14px; border-radius:10px; font-size:18px}
+  small{color:#9f9}
 </style>
 </head>
 <body>
-<div id="app">
-<div id="top">
-<h2>🤖 Person Following Bot - UPGRADED</h2>
-<div class="row">
-<input id="espIP" type="text" placeholder="ESP32 IP (192.168.x.x)" value="192.168.43.104">
-<button onclick="connectESP()" id="connBtn">Connect</button>
-</div>
-<div class="row">
-<button onclick="startCamera()" id="camBtn">Start Camera</button>
-<button onclick="toggleTracking()" id="trkBtn" disabled>Start Tracking</button>
-<button onclick="stopAll()" class="btn-stop" style="background:#a00">STOP ALL</button>
-</div>
-<div class="info">
-<span class="st" id="espSt"></span>ESP: <span id="espTxt">Disconnected</span> | 
-<span class="st" id="camSt"></span>Cam: <span id="camTxt">Off</span> | 
-<span class="st" id="trkSt"></span>Track: <span id="trkTxt">Off</span> | 
-FPS: <span id="fps">0</span>
-</div>
-</div>
-
-<div id="videoBox">
-<video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
-<div id="cmdBig">READY</div>
-<div id="status">
-<div><b>Person Detection:</b> <span id="personSt">Waiting...</span></div>
-<div><b>Commands Sent:</b> <span id="cmdCnt">0</span></div>
-<div><b>Distance:</b> <span id="dist">-</span> cm</div>
-<div class="debug-info" id="debugInfo">Debug: Ready</div>
-</div>
-<div id="cmdPanel">
-<h3>📡 Command Stream (Live)</h3>
-<div id="cmdList"></div>
-</div>
-</div>
-</div>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="ui">
+    <div id="status">Status: init</div>
+    <div id="stats"><small>fps: -- | latency: -- ms</small></div>
+  </div>
+  <div id="cmd">Command: --</div>
 
 <script>
-let video, canvas, ctx, pose, camera, isTracking = false, espIP = '', espConnected = false;
-let path = [], lastPos = null, frameCount = 0, lastTime = Date.now();
-let commandCount = 0, lastCommand = 'READY', lastCommandTime = 0, lastSendTime = 0;
-let cameraActive = false, poseReady = false;
-let consecutiveValidPoses = 0;
+/* =========================
+   CONFIG — tune for speed
+   ========================= */
+const CONFIG = {
+  // Performance
+  REQUESTED_WIDTH: 640,       // lower => faster inference, try 480 or 640
+  REQUESTED_HEIGHT: 480,
+  TARGET_FPS: 15,             // target detection fps
+  MOVE_NET_MODEL: "Lightning",// Lightning = fastest, Thunder = more accurate slower
+  MIN_KEYPOINT_SCORE: 0.45,
 
-const config = {
-  driveSpeed: 60,
-  steerSpeed: 70,
-  threshold: 45,
-  updateRate: 120,
-  minMovement: 30,
-  minPoseConfidence: 0.6,
-  minTrackingConfidence: 0.6
+  // Control & smoothing
+  EMA_ALPHA_X: 0.16,
+  EMA_ALPHA_SHOULDER: 0.12,
+  KALMAN_Q: 0.01,
+  KALMAN_R: 0.08,
+  PID: { kP: 0.007, kI: 0.0006, kD: 0.002 },
+  HORIZ_BASE_DEADZONE: 56,    // px
+
+  // Command sending
+  sendMode: "none", // "none" | "websocket" | "http"
+  websocketUrl: "ws://192.168.4.1:81",
+  httpUrl: "http://192.168.4.1/control",
+
+  // Other
+  debugDraw: true
 };
 
-function log(msg, isCmd = false) {
-  const list = document.getElementById('cmdList');
-  const div = document.createElement('div');
-  div.className = 'cmdLog' + (isCmd ? ' active' : '');
-  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  list.insertBefore(div, list.firstChild);
-  if (list.children.length > 20) list.removeChild(list.lastChild);
-  setTimeout(() => div.classList.remove('active'), 500);
+/* =========================
+   Lightweight helpers
+   ========================= */
+class EMA {
+  constructor(alpha){ this.a = alpha; this.v = null; }
+  update(x){ if (this.v === null) this.v = x; else this.v = this.a * x + (1 - this.a) * this.v; return this.v; }
+}
+class Kalman {
+  constructor(Q,R){ this.Q=Q; this.R=R; this.P=1; this.X=0; }
+  update(z){ this.P += this.Q; const K = this.P / (this.P + this.R); this.X += K * (z - this.X); this.P *= (1 - K); return this.X; }
+}
+class PID {
+  constructor(kP,kI,kD){ this.kP=kP; this.kI=kI; this.kD=kD; this.int=0; this.prev=0; }
+  update(err, dt){ this.int += err * dt; const deriv = dt>0 ? (err - this.prev)/dt : 0; this.prev = err; return this.kP*err + this.kI*this.int + this.kD*deriv; }
+}
+class MovingAvg {
+  constructor(n){ this.n=n; this.a=new Array(n); this.i=0; this.sum=0; this.count=0; }
+  push(x){ if (this.count < this.n) { this.a[this.i] = x; this.sum += x; this.count++; } else { this.sum -= this.a[this.i]; this.a[this.i] = x; this.sum += x; } this.i = (this.i+1)%this.n; return this.sum / this.count; }
 }
 
-function updateDebugInfo(msg) {
-  document.getElementById('debugInfo').textContent = `Debug: ${msg}`;
-}
+/* =========================
+   Globals
+   ========================= */
+let video = document.getElementById('video');
+let canvas = document.getElementById('canvas');
+let ctx = canvas.getContext('2d');
+let statusEl = document.getElementById('status');
+let statsEl = document.getElementById('stats');
+let cmdEl = document.getElementById('cmd');
 
-function updateUI() {
-  document.getElementById('espSt').className = 'st ' + (espConnected ? 'on' : 'off');
-  document.getElementById('camSt').className = 'st ' + (cameraActive ? 'on' : 'off');
-  document.getElementById('trkSt').className = 'st ' + (isTracking ? 'on' : 'off');
-  document.getElementById('espTxt').textContent = espConnected ? 'Connected' : 'Disconnected';
-  document.getElementById('camTxt').textContent = cameraActive ? 'Active' : 'Off';
-  document.getElementById('trkTxt').textContent = isTracking ? 'TRACKING' : 'Off';
-}
+let detector = null;
+let lastTime = 0;
+let lastProcessTime = 0;
+let emaX = new EMA(CONFIG.EMA_ALPHA_X);
+let emaShoulder = new EMA(CONFIG.EMA_ALPHA_SHOULDER);
+let kalmanX = new Kalman(CONFIG.KALMAN_Q, CONFIG.KALMAN_R);
+let pid = new PID(CONFIG.PID.kP, CONFIG.PID.kI, CONFIG.PID.kD);
+let shoulderMA = new MovingAvg(30);
 
-function validatePose(landmarks) {
-  if (!landmarks) return false;
-  
-  const requiredLandmarks = [0, 11, 12, 23, 24]; // nose, shoulders, hips
-  let visibleCount = 0;
-  let totalConfidence = 0;
-  
-  for (const index of requiredLandmarks) {
-    if (landmarks[index] && landmarks[index].visibility > config.minPoseConfidence) {
-      visibleCount++;
-      totalConfidence += landmarks[index].visibility;
-    }
-  }
-  
-  // At least 4 key landmarks should be visible with good confidence
-  if (visibleCount < 4) {
-    updateDebugInfo(`Insufficient landmarks: ${visibleCount}/5`);
-    return false;
-  }
-  
-  const avgConfidence = totalConfidence / visibleCount;
-  if (avgConfidence < config.minPoseConfidence) {
-    updateDebugInfo(`Low avg confidence: ${avgConfidence.toFixed(2)}`);
-    return false;
-  }
-  
-  // Check if pose is reasonably upright (shoulders above hips)
-  const leftShoulder = landmarks[11];
-  const rightShoulder = landmarks[12];
-  const leftHip = landmarks[23];
-  const rightHip = landmarks[24];
-  
-  if (leftShoulder && rightShoulder && leftHip && rightHip) {
-    const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-    const avgHipY = (leftHip.y + rightHip.y) / 2;
-    
-    // Shoulders should be above hips for upright person
-    if (avgShoulderY >= avgHipY) {
-      updateDebugInfo('Invalid pose: Shoulders below hips');
-      return false; // Person might be upside down or invalid
-    }
-    
-    // Check hip distance for reasonable person proportions
-    const hipDistance = Math.abs(leftHip.x - rightHip.x) * canvas.width;
-    if (hipDistance < 20 || hipDistance > 300) {
-      updateDebugInfo(`Unrealistic hip distance: ${Math.round(hipDistance)}px`);
-      return false;
-    }
-  }
-  
-  updateDebugInfo(`Valid pose: ${visibleCount} landmarks, conf: ${avgConfidence.toFixed(2)}`);
-  return true;
-}
+let ws = null;
+let lastSentTime = 0;
+let lastCommand = null;
 
-async function connectESP() {
-  espIP = document.getElementById('espIP').value.trim();
-  if (!espIP) {
-    alert('❌ Enter ESP32 IP address!');
-    return;
-  }
-  
-  document.getElementById('connBtn').disabled = true;
-  document.getElementById('connBtn').textContent = 'Connecting...';
-  
-  try {
-    const response = await fetch(`http://${espIP}/status`, { timeout: 3000 });
-    const data = await response.json();
-    espConnected = true;
-    updateUI();
-    log('✅ ESP32 Connected! Distance: ' + data.distance + 'cm');
-    document.getElementById('connBtn').textContent = 'Connected';
-    document.getElementById('dist').textContent = data.distance.toFixed(1);
-  } catch (err) {
-    espConnected = false;
-    updateUI();
-    log('❌ Connection Failed: ' + err.message);
-    alert('❌ Failed to connect!\n\n1. Check IP address\n2. ESP32 powered ON?\n3. Same WiFi network?');
-    document.getElementById('connBtn').disabled = false;
-    document.getElementById('connBtn').textContent = 'Retry';
-  }
-}
-
-async function sendCommand(drive, steer) {
-  if (!espConnected || !espIP) return false;
-  
+/* =========================
+   Networking (optional)
+   ========================= */
+function sendCommand(command){
+  if (!command) return;
+  // throttle identical commands to avoid network flood
   const now = Date.now();
-  if (now - lastSendTime < config.updateRate) return false;
-  lastSendTime = now;
-  
-  try {
-    fetch(`http://${espIP}/control?drive=${drive}&steer=${steer}`, {
-      method: 'GET',
-      mode: 'no-cors'
-    }).catch(() => {});
-    
-    commandCount++;
-    document.getElementById('cmdCnt').textContent = commandCount;
-    return true;
-  } catch (err) {
-    log('❌ Send error: ' + err.message);
-    return false;
+  if (command === lastCommand && now - lastSentTime < 120) return;
+  lastCommand = command; lastSentTime = now;
+
+  if (CONFIG.sendMode === 'websocket'){
+    if (!ws || ws.readyState !== WebSocket.OPEN){
+      try {
+        ws = new WebSocket(CONFIG.websocketUrl);
+        ws.onopen = ()=> { ws.send(command); };
+        ws.onclose = ()=> { console.warn('ws closed'); };
+        ws.onerror = (e)=> { console.warn('ws error', e); };
+      } catch (e) { console.warn('ws connect fail', e); }
+    } else {
+      ws.send(command);
+    }
+  } else if (CONFIG.sendMode === 'http'){
+    fetch(`${CONFIG.httpUrl}?cmd=${encodeURIComponent(command)}`).catch(e => console.warn('http send fail', e));
+  } else {
+    // none — for testing
+    // console.log('Command would be sent:', command);
   }
 }
 
-async function init() {
-  video = document.getElementById('video');
-  canvas = document.getElementById('canvas');
-  ctx = canvas.getContext('2d');
-  
-  pose = new Pose({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-  });
-  
-  pose.setOptions({
-    modelComplexity: 1, // Increased for better accuracy
-    smoothLandmarks: true,
-    minDetectionConfidence: config.minPoseConfidence,
-    minTrackingConfidence: config.minTrackingConfidence
-  });
-  
-  pose.onResults(onPoseResults);
-  poseReady = true;
-  log('✅ Pose detection model loaded');
+/* =========================
+   Draw helpers (minimal)
+   ========================= */
+function clearCanvas(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
+function drawRect(x,y,w,h,color='rgba(0,255,0,0.3)'){ ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h); }
+function drawCircle(x,y,r,color='rgba(255,200,0,0.9)'){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+
+/* =========================
+   Core compute and control
+   ========================= */
+function computeAndCommand(L, R, dt){
+  // L and R are keypoint objects with x,y,score
+  // 1) raw center, shoulder dist
+  const rawCenterX = (L.x + R.x) * 0.5;
+  const shoulderRaw = Math.abs(L.x - R.x);
+
+  // 2) smoothing (EMA -> Kalman)
+  const xEma = emaX.update(rawCenterX);
+  const xKal = kalmanX.update(xEma);
+
+  const shEma = emaShoulder.update(shoulderRaw);
+  const shAvg = shoulderMA.push(shEma);
+
+  // 3) compute errors
+  const screenCenter = canvas.width * 0.5;
+  const errX = xKal - screenCenter;
+  const pidAdj = pid.update(errX, dt);
+
+  // 4) adaptive deadzone
+  const adaptiveDead = CONFIG.HORIZ_BASE_DEADZONE + Math.abs(pidAdj) * 8;
+
+  // 5) distance thresholds
+  const forwardThresh = shAvg * 0.75;
+  const backwardThresh = shAvg * 1.35;
+
+  // 6) decide
+  let horiz = 'CENTER';
+  if (errX < -adaptiveDead) horiz = 'LEFT';
+  else if (errX > adaptiveDead) horiz = 'RIGHT';
+
+  let distance = '';
+  if (shEma < forwardThresh) distance = 'FORWARD';
+  else if (shEma > backwardThresh) distance = 'BACKWARD';
+
+  const command = distance ? `${distance}_${horiz}` : horiz;
+  return {command, debug:{errX:Math.round(errX), pidAdj:pidAdj.toFixed(2), adaptiveDead:Math.round(adaptiveDead), shEma:Math.round(shEma), shAvg:Math.round(shAvg)}};
 }
 
-async function startCamera() {
-  if (cameraActive) return;
-  
-  document.getElementById('camBtn').disabled = true;
-  document.getElementById('camBtn').textContent = 'Starting...';
-  
+/* =========================
+   Throttled, adaptive detection loop
+   ========================= */
+async function detectLoop(now){
+  if (!detector) return;
+  // adaptive throttle: if processing took too long, reduce effective fps by skipping frames
+  const targetInterval = 1000 / CONFIG.TARGET_FPS;
+  if (now - lastTime < targetInterval) { requestAnimationFrame(detectLoop); return; }
+  lastTime = now;
+
+  const t0 = performance.now();
+
+  clearCanvas();
+  // draw scaled video into canvas quickly (not strictly needed, but gives preview)
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    // estimate poses
+    const poses = await detector.estimatePoses(video, { maxPoses: 1, flipHorizontal: false });
+    const t1 = performance.now();
+
+    let commandText = '--';
+    if (poses && poses.length) {
+      const p = poses[0];
+      // MoveNet COCO format: left shoulder index 5, right shoulder index 6
+      const L = p.keypoints[5], R = p.keypoints[6];
+      if (L.score >= CONFIG.MIN_KEYPOINT_SCORE && R.score >= CONFIG.MIN_KEYPOINT_SCORE) {
+        if (CONFIG.debugDraw) {
+          drawCircle(L.x, L.y, 6, 'rgba(255,0,0,0.9)');
+          drawCircle(R.x, R.y, 6, 'rgba(255,0,0,0.9)');
+        }
+
+        const dt = Math.max(0.001, (t1 - lastProcessTime) / 1000);
+        const {command, debug} = computeAndCommand(L, R, dt);
+
+        // debug display
+        statusEl.innerText = `Status: running | PID:${debug.pidAdj} errX:${debug.errX}`;
+        statsEl.innerHTML = `<small>fps:${(1000/(t1 - t0)).toFixed(1)} latency:${Math.round(t1 - t0)}ms</small>`;
+
+        commandText = command;
+        cmdEl.innerText = `Command: ${command}`;
+
+        // draw alignment guide
+        if (CONFIG.debugDraw) {
+          const centerX = (L.x + R.x) * 0.5;
+          drawCircle(centerX, 40, 6, 'rgba(255,200,0,0.95)');
+          const band = CONFIG.HORIZ_BASE_DEADZONE + Math.abs(debug.pidAdj) * 8;
+          ctx.strokeStyle = 'rgba(0,255,0,0.3)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(canvas.width/2 - band, 20, band*2, 48);
+        }
+
+        // send
+        sendCommand(command);
+      } else {
+        // low confidence - don't change command; optionally send STOP
+        statusEl.innerText = 'Status: low confidence - holding';
+      }
+    } else {
+      statusEl.innerText = 'Status: person not found';
+    }
+
+    lastProcessTime = t1;
+  } catch (err) {
+    console.error('detection error', err);
+    statusEl.innerText = 'Status: detection error - recovering';
+    // small backoff on error
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  requestAnimationFrame(detectLoop);
+}
+
+/* =========================
+   Initialization
+   ========================= */
+async function init(){
+  statusEl.innerText = 'Status: initializing TF backend';
+  try {
+    await tf.setBackend('webgl');
+    await tf.ready();
+  } catch (e) {
+    console.warn('webgl backend failed, falling back to cpu', e);
+    try { await tf.setBackend('cpu'); await tf.ready(); } catch (ee) { throw ee; }
+  }
+
+  // request camera with reduced resolution for speed
+  statusEl.innerText = `Status: requesting camera ${CONFIG.REQUESTED_WIDTH}x${CONFIG.REQUESTED_HEIGHT}`;
+  try {
+    const constraints = {
       video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        facingMode: 'user'
+        width: { ideal: CONFIG.REQUESTED_WIDTH },
+        height: { ideal: CONFIG.REQUESTED_HEIGHT },
+        facingMode: 'environment'
       },
       audio: false
-    });
-    
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     video.srcObject = stream;
-    
-    await new Promise(resolve => {
-      video.onloadedmetadata = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        resolve();
-      };
-    });
-    
-    await video.play();
-    
-    camera = new Camera(video, {
-      onFrame: async () => {
-        if (pose && poseReady) {
-          await pose.send({ image: video });
-        }
-      },
-      width: 640,
-      height: 480
-    });
-    
-    await camera.start();
-    
-    cameraActive = true;
-    updateUI();
-    document.getElementById('camBtn').textContent = 'Camera ON';
-    document.getElementById('trkBtn').disabled = false;
-    log('✅ Camera started successfully');
-    
+    await new Promise(r => video.onloadeddata = r);
+    video.play();
+    // set canvas size to match actual video resolution for best coordinate mapping
+    canvas.width = video.videoWidth || CONFIG.REQUESTED_WIDTH;
+    canvas.height = video.videoHeight || CONFIG.REQUESTED_HEIGHT;
   } catch (err) {
-    cameraActive = false;
-    updateUI();
-    log('❌ Camera error: ' + err.message);
-    alert('❌ Camera Error!\n\n1. Allow camera permission\n2. Check camera is working\n3. Refresh page and try again');
-    document.getElementById('camBtn').disabled = false;
-    document.getElementById('camBtn').textContent = 'Retry Camera';
+    alert('Camera error: ' + err.message);
+    throw err;
   }
+
+  statusEl.innerText = 'Status: loading MoveNet';
+  detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, { modelType: CONFIG.MOVE_NET_MODEL });
+
+  statusEl.innerText = 'Status: ready';
+  lastTime = performance.now();
+  lastProcessTime = performance.now();
+  requestAnimationFrame(detectLoop);
 }
 
-function toggleTracking() {
-  if (!espConnected) {
-    alert('❌ Connect to ESP32 first!');
-    return;
-  }
-  
-  if (!cameraActive) {
-    alert('❌ Start camera first!');
-    return;
-  }
-  
-  isTracking = !isTracking;
-  
-  if (isTracking) {
-    document.getElementById('trkBtn').textContent = 'Stop Tracking';
-    document.getElementById('trkBtn').style.background = '#f00';
-    document.getElementById('cmdBig').textContent = 'TRACKING...';
-    consecutiveValidPoses = 0;
-    log('🎯 TRACKING STARTED - Bot will follow person');
-  } else {
-    document.getElementById('trkBtn').textContent = 'Start Tracking';
-    document.getElementById('trkBtn').style.background = '#0a0';
-    document.getElementById('cmdBig').textContent = 'STOPPED';
-    sendCommand(0, 0);
-    log('⏹️ Tracking stopped');
-  }
-  
-  updateUI();
-}
+/* =========================
+   Start
+   ========================= */
+window.addEventListener('load', () => {
+  statusEl = document.getElementById('status');
+  statsEl = document.getElementById('stats');
+  cmdEl = document.getElementById('cmd');
+  init().catch(e => { statusEl.innerText = 'Init failed: ' + e; console.error(e); });
+});
 
-function stopAll() {
-  isTracking = false;
-  sendCommand(0, 0);
-  document.getElementById('cmdBig').textContent = 'STOPPED';
-  document.getElementById('trkBtn').textContent = 'Start Tracking';
-  document.getElementById('trkBtn').style.background = '#0a0';
-  updateUI();
-  log('🛑 EMERGENCY STOP');
-}
-
-function onPoseResults(results) {
-  if (!canvas || !ctx) return;
-  
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-  
-  if (results.poseLandmarks) {
-    const landmarks = results.poseLandmarks;
-    
-    // Validate if this is actually a person
-    const isValidPose = validatePose(landmarks);
-    
-    if (!isValidPose) {
-      consecutiveValidPoses = Math.max(0, consecutiveValidPoses - 1);
-      
-      if (consecutiveValidPoses < 3) {
-        document.getElementById('personSt').textContent = '❌ Invalid pose - Not tracking';
-        document.getElementById('personSt').style.color = '#f00';
-        
-        if (isTracking && lastCommand !== 'NO PERSON') {
-          sendCommand(0, 0);
-          lastCommand = 'NO PERSON';
-          document.getElementById('cmdBig').textContent = 'NO PERSON';
-        }
-        
-        // Draw landmarks in red to indicate invalid pose
-        drawConnectors(ctx, landmarks, POSE_CONNECTIONS, {
-          color: 'rgba(255,0,0,0.3)',
-          lineWidth: 2
-        });
-        drawLandmarks(ctx, landmarks, {
-          color: 'rgba(255,0,0,0.4)',
-          lineWidth: 1,
-          radius: 3
-        });
-        
-        ctx.restore();
-        updateFrameRate();
-        return;
-      }
-    } else {
-      consecutiveValidPoses = Math.min(10, consecutiveValidPoses + 1);
-    }
-    
-    // Valid person detected - proceed with tracking
-    const leftHip = landmarks[23];
-    const rightHip = landmarks[24];
-    const nose = landmarks[0];
-    
-    if (leftHip && rightHip && nose) {
-      const centerX = (leftHip.x + rightHip.x) / 2 * canvas.width;
-      const centerY = (leftHip.y + rightHip.y) / 2 * canvas.height;
-      const currentPos = { x: centerX, y: centerY };
-      
-      document.getElementById('personSt').textContent = `✅ Person Detected at (${Math.round(centerX)},${Math.round(centerY)}) [${consecutiveValidPoses}/3]`;
-      document.getElementById('personSt').style.color = '#0f0';
-      
-      if (isTracking && consecutiveValidPoses >= 3) {
-        const screenCenterX = canvas.width / 2;
-        const screenCenterY = canvas.height / 2;
-        
-        const deltaX = currentPos.x - screenCenterX;
-        const deltaY = currentPos.y - screenCenterY;
-        
-        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-        
-        const xRatio = deltaX / (canvas.width / 2); // Normalized -1 to 1
-        const yRatio = deltaY / (canvas.height / 2); // Normalized -1 to 1
-        
-        path.push({ x1: screenCenterX, y1: screenCenterY, x2: currentPos.x, y2: currentPos.y });
-        if (path.length > 80) path.shift();
-        
-        const now = Date.now();
-        if (now - lastCommandTime > config.updateRate) {
-          
-          let command = 'STOP';
-          let drive = 0, steer = 0;
-          
-          const xThreshold = canvas.width * 0.15;  // 15% from center
-          const yThreshold = canvas.height * 0.20; // 20% from center
-          
-          // Calculate movement priorities
-          const absXRatio = Math.abs(xRatio);
-          const absYRatio = Math.abs(yRatio);
-          
-          // Only move if significantly off-center
-          if (absXRatio > 0.3 || absYRatio > 0.3) {
-            
-            if (absXRatio > absYRatio) {
-              // Horizontal movement takes priority
-              if (deltaX > xThreshold) {
-                command = 'RIGHT';
-                steer = Math.min(100, Math.round(absXRatio * config.steerSpeed));
-                drive = Math.round(config.driveSpeed * 0.7); // Slower when turning
-              } else if (deltaX < -xThreshold) {
-                command = 'LEFT';
-                steer = -Math.min(100, Math.round(absXRatio * config.steerSpeed));
-                drive = Math.round(config.driveSpeed * 0.7);
-              }
-            } else {
-              // Vertical movement takes priority
-              if (deltaY > yThreshold) {
-                command = 'BACK'; // Person is lower in frame - move back
-                drive = -Math.min(100, Math.round(absYRatio * config.driveSpeed));
-              } else if (deltaY < -yThreshold) {
-                command = 'FRONT'; // Person is higher in frame - move forward
-                drive = Math.min(100, Math.round(absYRatio * config.driveSpeed));
-              }
-            }
-            
-            // Send command only if it's different from last command or enough time has passed
-            if (command !== lastCommand || now - lastCommandTime > 500) {
-              const sent = sendCommand(drive, steer);
-              if (sent) {
-                lastCommand = command;
-                lastCommandTime = now;
-                document.getElementById('cmdBig').textContent = command;
-                log(`➤ ${command} | D:${drive} S:${steer} | Dist:${Math.round(distance)}px | X:${xRatio.toFixed(2)} Y:${yRatio.toFixed(2)}`, true);
-              }
-            }
-            
-          } else {
-            // Person is centered - stop
-            if (lastCommand !== 'CENTERED') {
-              sendCommand(0, 0);
-              lastCommand = 'CENTERED';
-              document.getElementById('cmdBig').textContent = 'CENTERED';
-              log('✓ Person centered - Stopping | Dist:' + Math.round(distance) + 'px', true);
-            }
-          }
-        }
-      }
-      
-      lastPos = currentPos;
-      
-      // Draw tracking visualization
-      drawTrackingVisualization(currentPos);
-      
-    } else {
-      document.getElementById('personSt').textContent = '❌ Missing key landmarks';
-      document.getElementById('personSt').style.color = '#f00';
-    }
-    
-    // Draw pose landmarks in green for valid detection
-    drawConnectors(ctx, landmarks, POSE_CONNECTIONS, {
-      color: 'rgba(0,255,0,0.3)',
-      lineWidth: 2
-    });
-    drawLandmarks(ctx, landmarks, {
-      color: 'rgba(0,255,255,0.4)',
-      lineWidth: 1,
-      radius: 3
-    });
-  } else {
-    consecutiveValidPoses = 0;
-    document.getElementById('personSt').textContent = '⚠️ Waiting for person...';
-    document.getElementById('personSt').style.color = '#fa0';
-    
-    if (isTracking && lastCommand !== 'NO PERSON') {
-      sendCommand(0, 0);
-      lastCommand = 'NO PERSON';
-      document.getElementById('cmdBig').textContent = 'NO PERSON';
-    }
-  }
-  
-  ctx.restore();
-  updateFrameRate();
-}
-
-function drawTrackingVisualization(currentPos) {
-  const screenCenterX = canvas.width / 2;
-  const screenCenterY = canvas.height / 2;
-  
-  // Draw center crosshair
-  ctx.strokeStyle = '#f00';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([5, 5]);
-  ctx.beginPath();
-  ctx.moveTo(0, screenCenterY);
-  ctx.lineTo(canvas.width, screenCenterY);
-  ctx.moveTo(screenCenterX, 0);
-  ctx.lineTo(screenCenterX, canvas.height);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  
-  // Draw center point
-  ctx.beginPath();
-  ctx.arc(screenCenterX, screenCenterY, 10, 0, 2 * Math.PI);
-  ctx.strokeStyle = '#f00';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  
-  // Draw line to person
-  ctx.strokeStyle = '#ff0';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(screenCenterX, screenCenterY);
-  ctx.lineTo(currentPos.x, currentPos.y);
-  ctx.stroke();
-  
-  // Draw path history
-  drawPath();
-  
-  // Draw person marker
-  ctx.beginPath();
-  ctx.arc(currentPos.x, currentPos.y, 20, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(0,255,0,0.5)';
-  ctx.fill();
-  ctx.strokeStyle = '#0f0';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  
-  // Draw person label
-  ctx.font = 'bold 20px Arial';
-  ctx.fillStyle = '#0f0';
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 3;
-  ctx.strokeText('PERSON', currentPos.x - 45, currentPos.y - 30);
-  ctx.fillText('PERSON', currentPos.x - 45, currentPos.y - 30);
-  
-  // Draw position info
-  const deltaX = Math.round(currentPos.x - screenCenterX);
-  const deltaY = Math.round(currentPos.y - screenCenterY);
-  const dist = Math.round(Math.sqrt(deltaX * deltaX + deltaY * deltaY));
-  
-  ctx.font = '12px Arial';
-  ctx.fillStyle = '#ff0';
-  ctx.fillText(`ΔX:${deltaX} ΔY:${deltaY}`, currentPos.x - 40, currentPos.y + 40);
-  ctx.fillText(`Dist:${dist}px`, currentPos.x - 40, currentPos.y + 55);
-}
-
-function drawPath() {
-  if (path.length < 2) return;
-  
-  ctx.strokeStyle = '#0f0';
-  ctx.lineWidth = 4;
-  ctx.shadowColor = '#0f0';
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  
-  path.forEach((segment, i) => {
-    if (i === 0) ctx.moveTo(segment.x1, segment.y1);
-    ctx.lineTo(segment.x2, segment.y2);
-  });
-  
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  
-  path.forEach((segment, i) => {
-    const opacity = 0.3 + (i / path.length) * 0.7;
-    ctx.beginPath();
-    ctx.arc(segment.x2, segment.y2, 5, 0, 2 * Math.PI);
-    ctx.fillStyle = `rgba(0,255,0,${opacity})`;
-    ctx.fill();
-  });
-}
-
-function updateFrameRate() {
-  frameCount++;
-  const now = Date.now();
-  if (now - lastTime > 1000) {
-    document.getElementById('fps').textContent = frameCount;
-    frameCount = 0;
-    lastTime = now;
-  }
-}
-
-setInterval(async () => {
-  if (espConnected && espIP) {
-    try {
-      const response = await fetch(`http://${espIP}/data`);
-      const data = await response.json();
-      document.getElementById('dist').textContent = data.distance.toFixed(1);
-    } catch (err) {
-      // Silent fail for distance updates
-    }
-  }
-}, 1000);
-
-window.onload = init;
 </script>
 </body>
 </html>
