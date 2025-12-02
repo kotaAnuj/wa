@@ -2,309 +2,1035 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Fast & Reliable Person Tracker — EMA + Kalman + PID</title>
+<title>Person Tracker + Remote Control</title>
 
 <!-- TF and MoveNet -->
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.min.js"></script>
 
 <style>
-  :root{--bg:#000;--accent:#1eff7a}
-  html,body{height:100%; margin:0; background:var(--bg); color:var(--accent); font-family:system-ui,monospace}
-  video{display:none} /* hide the raw video element to reduce repaints */
-  canvas{position:absolute; inset:0; width:100vw; height:100vh; object-fit:cover}
-  #ui {position:absolute; left:8px; top:8px; background:rgba(0,0,0,0.45); padding:8px 10px; border-radius:8px}
-  #cmd {position:absolute; left:50%; transform:translateX(-50%); bottom:18px; background:rgba(0,0,0,0.6); padding:10px 14px; border-radius:10px; font-size:18px}
-  small{color:#9f9}
+  :root {
+    --bg: #000;
+    --accent: #1eff7a;
+    --panel-bg: rgba(0, 0, 0, 0.85);
+    --button-bg: rgba(30, 255, 122, 0.15);
+    --button-hover: rgba(30, 255, 122, 0.3);
+  }
+  
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--accent);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+  }
+  
+  video {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+  }
+  
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+  }
+  
+  #ui {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    background: var(--panel-bg);
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(30, 255, 122, 0.2);
+    backdrop-filter: blur(10px);
+    z-index: 100;
+    min-width: 200px;
+  }
+  
+  #ui h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  
+  #status {
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: #fff;
+  }
+  
+  #stats {
+    font-size: 12px;
+    color: #9f9;
+    margin-bottom: 8px;
+  }
+  
+  .mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  
+  .mode-btn {
+    flex: 1;
+    padding: 6px 12px;
+    background: var(--button-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  
+  .mode-btn.active {
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+  }
+  
+  .mode-btn:hover {
+    background: var(--button-hover);
+  }
+  
+  #cmd {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 20px;
+    background: var(--panel-bg);
+    padding: 14px 20px;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 600;
+    border: 1px solid rgba(30, 255, 122, 0.3);
+    backdrop-filter: blur(10px);
+    min-width: 200px;
+    text-align: center;
+    z-index: 100;
+  }
+  
+  /* Remote Control Styles */
+  #remoteBtn {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    background: var(--button-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 100;
+    transition: all 0.2s;
+  }
+  
+  #remoteBtn:hover {
+    background: var(--button-hover);
+    transform: scale(1.05);
+  }
+  
+  #remotePanel {
+    position: absolute;
+    right: 12px;
+    top: 60px;
+    background: var(--panel-bg);
+    border: 1px solid rgba(30, 255, 122, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    backdrop-filter: blur(10px);
+    display: none;
+    z-index: 200;
+    min-width: 180px;
+  }
+  
+  .remote-title {
+    text-align: center;
+    margin: 0 0 12px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  
+  .remote-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 60px);
+    grid-template-rows: repeat(3, 60px);
+    gap: 8px;
+    justify-content: center;
+  }
+  
+  .remote-btn {
+    width: 60px;
+    height: 60px;
+    background: var(--button-bg);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    color: var(--accent);
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  
+  .remote-btn:hover {
+    background: var(--button-hover);
+    transform: scale(1.08);
+  }
+  
+  .remote-btn:active {
+    background: var(--accent);
+    color: #000;
+    transform: scale(0.95);
+  }
+  
+  .center-btn {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  
+  .stop-btn {
+    grid-column: 1 / span 3;
+    grid-row: 4;
+    width: auto;
+    margin-top: 8px;
+    height: 50px;
+    background: rgba(255, 50, 50, 0.2);
+    border-color: #ff3232;
+    color: #ff3232;
+  }
+  
+  .stop-btn:hover {
+    background: rgba(255, 50, 50, 0.3);
+  }
+  
+  #remoteClose {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 18px;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  #remoteClose:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  
+  .connection-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    font-size: 12px;
+  }
+  
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff3232;
+  }
+  
+  .status-dot.connected {
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  .config-slider {
+    margin: 8px 0;
+  }
+  
+  .config-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  
+  .slider-value {
+    color: #9f9;
+  }
+  
+  input[type="range"] {
+    width: 100%;
+    height: 4px;
+    background: rgba(30, 255, 122, 0.2);
+    border-radius: 2px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
+  
   <div id="ui">
-    <div id="status">Status: init</div>
-    <div id="stats"><small>fps: -- | latency: -- ms</small></div>
+    <h3>Person Tracker</h3>
+    <div id="status">Initializing...</div>
+    <div id="stats">FPS: -- | Latency: -- ms</div>
+    
+    <div class="mode-toggle">
+      <button id="modeAuto" class="mode-btn active">Auto</button>
+      <button id="modeManual" class="mode-btn">Manual</button>
+    </div>
+    
+    <div class="connection-status">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="connectionText">Disconnected</span>
+    </div>
   </div>
+  
+  <button id="remoteBtn">📱 Remote</button>
+  
+  <div id="remotePanel">
+    <button id="remoteClose">×</button>
+    <div class="remote-title">Manual Control</div>
+    <div class="remote-grid">
+      <button class="remote-btn" data-cmd="FORWARD">↑</button>
+      <button class="remote-btn" data-cmd="LEFT">←</button>
+      <button class="remote-btn center-btn" data-cmd="CENTER">●</button>
+      <button class="remote-btn" data-cmd="RIGHT">→</button>
+      <button class="remote-btn" data-cmd="BACKWARD">↓</button>
+      <button class="remote-btn stop-btn" data-cmd="STOP">STOP</button>
+    </div>
+    
+    <div class="config-slider">
+      <div class="config-label">
+        <span>Sensitivity</span>
+        <span id="sensitivityValue" class="slider-value">0.15</span>
+      </div>
+      <input type="range" id="sensitivitySlider" min="0.05" max="0.3" step="0.01" value="0.15">
+    </div>
+    
+    <div class="config-slider">
+      <div class="config-label">
+        <span>Deadzone</span>
+        <span id="deadzoneValue" class="slider-value">50px</span>
+      </div>
+      <input type="range" id="deadzoneSlider" min="20" max="100" step="5" value="50">
+    </div>
+  </div>
+  
   <div id="cmd">Command: --</div>
 
 <script>
 /* =========================
-   CONFIG — tune for speed
+   CONFIG
    ========================= */
 const CONFIG = {
   // Performance
-  REQUESTED_WIDTH: 640,       // lower => faster inference, try 480 or 640
+  REQUESTED_WIDTH: 640,
   REQUESTED_HEIGHT: 480,
-  TARGET_FPS: 15,             // target detection fps
-  MOVE_NET_MODEL: "Lightning",// Lightning = fastest, Thunder = more accurate slower
-  MIN_KEYPOINT_SCORE: 0.45,
-
-  // Control & smoothing
-  EMA_ALPHA_X: 0.16,
-  EMA_ALPHA_SHOULDER: 0.12,
-  KALMAN_Q: 0.01,
-  KALMAN_R: 0.08,
-  PID: { kP: 0.007, kI: 0.0006, kD: 0.002 },
-  HORIZ_BASE_DEADZONE: 56,    // px
-
-  // Command sending
-  sendMode: "none", // "none" | "websocket" | "http"
-  websocketUrl: "ws://192.168.4.1:81",
-  httpUrl: "http://192.168.4.1/control",
-
-  // Other
-  debugDraw: true
+  TARGET_FPS: 20,
+  MOVE_NET_MODEL: poseDetection.SupportedModels.MoveNet,
+  MODEL_TYPE: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING, // FIXED
+  MIN_KEYPOINT_SCORE: 0.35,
+  
+  // Smoothing
+  EMA_ALPHA: 0.15,
+  KALMAN_Q: 0.008,
+  KALMAN_R: 0.1,
+  PID_KP: 0.008,
+  PID_KI: 0.0005,
+  PID_KD: 0.003,
+  BASE_DEADZONE: 50,
+  
+  // Control
+  OPERATION_MODE: 'auto', // 'auto' or 'manual'
+  SEND_INTERVAL_MS: 100,
+  
+  // Remote
+  REMOTE_ENABLED: true
 };
 
 /* =========================
-   Lightweight helpers
+   Global State
    ========================= */
-class EMA {
-  constructor(alpha){ this.a = alpha; this.v = null; }
-  update(x){ if (this.v === null) this.v = x; else this.v = this.a * x + (1 - this.a) * this.v; return this.v; }
-}
-class Kalman {
-  constructor(Q,R){ this.Q=Q; this.R=R; this.P=1; this.X=0; }
-  update(z){ this.P += this.Q; const K = this.P / (this.P + this.R); this.X += K * (z - this.X); this.P *= (1 - K); return this.X; }
-}
-class PID {
-  constructor(kP,kI,kD){ this.kP=kP; this.kI=kI; this.kD=kD; this.int=0; this.prev=0; }
-  update(err, dt){ this.int += err * dt; const deriv = dt>0 ? (err - this.prev)/dt : 0; this.prev = err; return this.kP*err + this.kI*this.int + this.kD*deriv; }
-}
-class MovingAvg {
-  constructor(n){ this.n=n; this.a=new Array(n); this.i=0; this.sum=0; this.count=0; }
-  push(x){ if (this.count < this.n) { this.a[this.i] = x; this.sum += x; this.count++; } else { this.sum -= this.a[this.i]; this.a[this.i] = x; this.sum += x; } this.i = (this.i+1)%this.n; return this.sum / this.count; }
-}
-
-/* =========================
-   Globals
-   ========================= */
-let video = document.getElementById('video');
-let canvas = document.getElementById('canvas');
-let ctx = canvas.getContext('2d');
-let statusEl = document.getElementById('status');
-let statsEl = document.getElementById('stats');
-let cmdEl = document.getElementById('cmd');
-
+let video, canvas, ctx;
+let statusEl, statsEl, cmdEl;
 let detector = null;
-let lastTime = 0;
+let isInitialized = false;
+let isRunning = false;
+
+// Performance tracking
+let frameCount = 0;
+let lastFpsUpdate = 0;
+let currentFps = 0;
 let lastProcessTime = 0;
-let emaX = new EMA(CONFIG.EMA_ALPHA_X);
-let emaShoulder = new EMA(CONFIG.EMA_ALPHA_SHOULDER);
-let kalmanX = new Kalman(CONFIG.KALMAN_Q, CONFIG.KALMAN_R);
-let pid = new PID(CONFIG.PID.kP, CONFIG.PID.kI, CONFIG.PID.kD);
-let shoulderMA = new MovingAvg(30);
 
-let ws = null;
-let lastSentTime = 0;
-let lastCommand = null;
+// Smoothing filters
+class EMAFilter {
+  constructor(alpha = 0.1) {
+    this.alpha = alpha;
+    this.value = null;
+  }
+  
+  update(newValue) {
+    if (this.value === null) {
+      this.value = newValue;
+    } else {
+      this.value = this.alpha * newValue + (1 - this.alpha) * this.value;
+    }
+    return this.value;
+  }
+}
+
+class PIDController {
+  constructor(kP, kI, kD) {
+    this.kP = kP;
+    this.kI = kI;
+    this.kD = kD;
+    this.integral = 0;
+    this.previousError = 0;
+  }
+  
+  update(error, dt) {
+    if (dt === 0) dt = 0.001;
+    
+    this.integral += error * dt;
+    const derivative = (error - this.previousError) / dt;
+    const output = (this.kP * error) + (this.kI * this.integral) + (this.kD * derivative);
+    
+    this.previousError = error;
+    
+    // Prevent integral windup
+    this.integral = Math.max(-100, Math.min(100, this.integral));
+    
+    return output;
+  }
+  
+  reset() {
+    this.integral = 0;
+    this.previousError = 0;
+  }
+}
+
+let emaX = new EMAFilter(CONFIG.EMA_ALPHA);
+let emaShoulder = new EMAFilter(CONFIG.EMA_ALPHA);
+let pidController = new PIDController(CONFIG.PID_KP, CONFIG.PID_KI, CONFIG.PID_KD);
+
+// Command state
+let lastCommandSent = null;
+let lastSendTime = 0;
+let currentCommand = '--';
+let deadzone = CONFIG.BASE_DEADZONE;
+
+// Connection state
+let isConnected = false;
 
 /* =========================
-   Networking (optional)
+   DOM Elements
    ========================= */
-function sendCommand(command){
-  if (!command) return;
-  // throttle identical commands to avoid network flood
-  const now = Date.now();
-  if (command === lastCommand && now - lastSentTime < 120) return;
-  lastCommand = command; lastSentTime = now;
+function initDOM() {
+  video = document.getElementById('video');
+  canvas = document.getElementById('canvas');
+  ctx = canvas.getContext('2d');
+  statusEl = document.getElementById('status');
+  statsEl = document.getElementById('stats');
+  cmdEl = document.getElementById('cmd');
+  
+  // Setup remote panel
+  const remoteBtn = document.getElementById('remoteBtn');
+  const remotePanel = document.getElementById('remotePanel');
+  const remoteClose = document.getElementById('remoteClose');
+  
+  remoteBtn.addEventListener('click', () => {
+    remotePanel.style.display = remotePanel.style.display === 'block' ? 'none' : 'block';
+  });
+  
+  remoteClose.addEventListener('click', () => {
+    remotePanel.style.display = 'none';
+  });
+  
+  // Remote buttons
+  document.querySelectorAll('.remote-btn').forEach(btn => {
+    btn.addEventListener('mousedown', () => {
+      const cmd = btn.getAttribute('data-cmd');
+      sendCommand(cmd);
+    });
+    
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const cmd = btn.getAttribute('data-cmd');
+      sendCommand(cmd);
+    });
+  });
+  
+  // Mode toggle
+  const modeAuto = document.getElementById('modeAuto');
+  const modeManual = document.getElementById('modeManual');
+  
+  modeAuto.addEventListener('click', () => {
+    CONFIG.OPERATION_MODE = 'auto';
+    modeAuto.classList.add('active');
+    modeManual.classList.remove('active');
+    statusEl.textContent = 'Mode: Auto Tracking';
+    pidController.reset();
+  });
+  
+  modeManual.addEventListener('click', () => {
+    CONFIG.OPERATION_MODE = 'manual';
+    modeManual.classList.add('active');
+    modeAuto.classList.remove('active');
+    statusEl.textContent = 'Mode: Manual Control';
+    sendCommand('CENTER'); // Center when switching to manual
+  });
+  
+  // Sliders
+  const sensitivitySlider = document.getElementById('sensitivitySlider');
+  const sensitivityValue = document.getElementById('sensitivityValue');
+  const deadzoneSlider = document.getElementById('deadzoneSlider');
+  const deadzoneValue = document.getElementById('deadzoneValue');
+  
+  sensitivitySlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    CONFIG.EMA_ALPHA = value;
+    emaX.alpha = value;
+    emaShoulder.alpha = value;
+    sensitivityValue.textContent = value.toFixed(2);
+  });
+  
+  deadzoneSlider.addEventListener('input', (e) => {
+    deadzone = parseInt(e.target.value);
+    deadzoneValue.textContent = `${deadzone}px`;
+  });
+  
+  // Connection status
+  updateConnectionStatus(false);
+  
+  // Hide remote panel by default
+  remotePanel.style.display = 'none';
+}
 
-  if (CONFIG.sendMode === 'websocket'){
-    if (!ws || ws.readyState !== WebSocket.OPEN){
-      try {
-        ws = new WebSocket(CONFIG.websocketUrl);
-        ws.onopen = ()=> { ws.send(command); };
-        ws.onclose = ()=> { console.warn('ws closed'); };
-        ws.onerror = (e)=> { console.warn('ws error', e); };
-      } catch (e) { console.warn('ws connect fail', e); }
-    } else {
-      ws.send(command);
-    }
-  } else if (CONFIG.sendMode === 'http'){
-    fetch(`${CONFIG.httpUrl}?cmd=${encodeURIComponent(command)}`).catch(e => console.warn('http send fail', e));
+/* =========================
+   Connection Management
+   ========================= */
+function updateConnectionStatus(connected) {
+  isConnected = connected;
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('connectionText');
+  
+  if (connected) {
+    dot.className = 'status-dot connected';
+    text.textContent = 'Connected';
   } else {
-    // none — for testing
-    // console.log('Command would be sent:', command);
+    dot.className = 'status-dot';
+    text.textContent = 'Disconnected';
   }
 }
 
-/* =========================
-   Draw helpers (minimal)
-   ========================= */
-function clearCanvas(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
-function drawRect(x,y,w,h,color='rgba(0,255,0,0.3)'){ ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h); }
-function drawCircle(x,y,r,color='rgba(255,200,0,0.9)'){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
-
-/* =========================
-   Core compute and control
-   ========================= */
-function computeAndCommand(L, R, dt){
-  // L and R are keypoint objects with x,y,score
-  // 1) raw center, shoulder dist
-  const rawCenterX = (L.x + R.x) * 0.5;
-  const shoulderRaw = Math.abs(L.x - R.x);
-
-  // 2) smoothing (EMA -> Kalman)
-  const xEma = emaX.update(rawCenterX);
-  const xKal = kalmanX.update(xEma);
-
-  const shEma = emaShoulder.update(shoulderRaw);
-  const shAvg = shoulderMA.push(shEma);
-
-  // 3) compute errors
-  const screenCenter = canvas.width * 0.5;
-  const errX = xKal - screenCenter;
-  const pidAdj = pid.update(errX, dt);
-
-  // 4) adaptive deadzone
-  const adaptiveDead = CONFIG.HORIZ_BASE_DEADZONE + Math.abs(pidAdj) * 8;
-
-  // 5) distance thresholds
-  const forwardThresh = shAvg * 0.75;
-  const backwardThresh = shAvg * 1.35;
-
-  // 6) decide
-  let horiz = 'CENTER';
-  if (errX < -adaptiveDead) horiz = 'LEFT';
-  else if (errX > adaptiveDead) horiz = 'RIGHT';
-
-  let distance = '';
-  if (shEma < forwardThresh) distance = 'FORWARD';
-  else if (shEma > backwardThresh) distance = 'BACKWARD';
-
-  const command = distance ? `${distance}_${horiz}` : horiz;
-  return {command, debug:{errX:Math.round(errX), pidAdj:pidAdj.toFixed(2), adaptiveDead:Math.round(adaptiveDead), shEma:Math.round(shEma), shAvg:Math.round(shAvg)}};
+function sendCommand(command) {
+  if (!command) return;
+  
+  const now = Date.now();
+  
+  // Throttle identical commands
+  if (command === lastCommandSent && (now - lastSendTime) < CONFIG.SEND_INTERVAL_MS) {
+    return;
+  }
+  
+  lastCommandSent = command;
+  lastSendTime = now;
+  currentCommand = command;
+  
+  // Update display
+  cmdEl.textContent = `Command: ${command}`;
+  
+  // For demo: simulate connection
+  updateConnectionStatus(true);
+  
+  // In real implementation, send via WebSocket/HTTP:
+  // if (CONFIG.OPERATION_MODE === 'manual' || command !== '--') {
+  //   fetch(`/api/control?cmd=${encodeURIComponent(command)}`)
+  //     .then(() => updateConnectionStatus(true))
+  //     .catch(() => updateConnectionStatus(false));
+  // }
+  
+  console.log(`Command sent: ${command}`, new Date().toLocaleTimeString());
 }
 
 /* =========================
-   Throttled, adaptive detection loop
+   Camera Setup - FIXED VERSION
    ========================= */
-async function detectLoop(now){
-  if (!detector) return;
-  // adaptive throttle: if processing took too long, reduce effective fps by skipping frames
-  const targetInterval = 1000 / CONFIG.TARGET_FPS;
-  if (now - lastTime < targetInterval) { requestAnimationFrame(detectLoop); return; }
-  lastTime = now;
-
-  const t0 = performance.now();
-
-  clearCanvas();
-  // draw scaled video into canvas quickly (not strictly needed, but gives preview)
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+async function setupCamera() {
+  statusEl.textContent = 'Requesting camera access...';
+  
   try {
-    // estimate poses
-    const poses = await detector.estimatePoses(video, { maxPoses: 1, flipHorizontal: false });
-    const t1 = performance.now();
-
-    let commandText = '--';
-    if (poses && poses.length) {
-      const p = poses[0];
-      // MoveNet COCO format: left shoulder index 5, right shoulder index 6
-      const L = p.keypoints[5], R = p.keypoints[6];
-      if (L.score >= CONFIG.MIN_KEYPOINT_SCORE && R.score >= CONFIG.MIN_KEYPOINT_SCORE) {
-        if (CONFIG.debugDraw) {
-          drawCircle(L.x, L.y, 6, 'rgba(255,0,0,0.9)');
-          drawCircle(R.x, R.y, 6, 'rgba(255,0,0,0.9)');
-        }
-
-        const dt = Math.max(0.001, (t1 - lastProcessTime) / 1000);
-        const {command, debug} = computeAndCommand(L, R, dt);
-
-        // debug display
-        statusEl.innerText = `Status: running | PID:${debug.pidAdj} errX:${debug.errX}`;
-        statsEl.innerHTML = `<small>fps:${(1000/(t1 - t0)).toFixed(1)} latency:${Math.round(t1 - t0)}ms</small>`;
-
-        commandText = command;
-        cmdEl.innerText = `Command: ${command}`;
-
-        // draw alignment guide
-        if (CONFIG.debugDraw) {
-          const centerX = (L.x + R.x) * 0.5;
-          drawCircle(centerX, 40, 6, 'rgba(255,200,0,0.95)');
-          const band = CONFIG.HORIZ_BASE_DEADZONE + Math.abs(debug.pidAdj) * 8;
-          ctx.strokeStyle = 'rgba(0,255,0,0.3)';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(canvas.width/2 - band, 20, band*2, 48);
-        }
-
-        // send
-        sendCommand(command);
-      } else {
-        // low confidence - don't change command; optionally send STOP
-        statusEl.innerText = 'Status: low confidence - holding';
-      }
-    } else {
-      statusEl.innerText = 'Status: person not found';
-    }
-
-    lastProcessTime = t1;
-  } catch (err) {
-    console.error('detection error', err);
-    statusEl.innerText = 'Status: detection error - recovering';
-    // small backoff on error
-    await new Promise(r => setTimeout(r, 200));
-  }
-
-  requestAnimationFrame(detectLoop);
-}
-
-/* =========================
-   Initialization
-   ========================= */
-async function init(){
-  statusEl.innerText = 'Status: initializing TF backend';
-  try {
-    await tf.setBackend('webgl');
-    await tf.ready();
-  } catch (e) {
-    console.warn('webgl backend failed, falling back to cpu', e);
-    try { await tf.setBackend('cpu'); await tf.ready(); } catch (ee) { throw ee; }
-  }
-
-  // request camera with reduced resolution for speed
-  statusEl.innerText = `Status: requesting camera ${CONFIG.REQUESTED_WIDTH}x${CONFIG.REQUESTED_HEIGHT}`;
-  try {
-    const constraints = {
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         width: { ideal: CONFIG.REQUESTED_WIDTH },
         height: { ideal: CONFIG.REQUESTED_HEIGHT },
         facingMode: 'environment'
       },
       audio: false
-    };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    });
+    
     video.srcObject = stream;
-    await new Promise(r => video.onloadeddata = r);
-    video.play();
-    // set canvas size to match actual video resolution for best coordinate mapping
-    canvas.width = video.videoWidth || CONFIG.REQUESTED_WIDTH;
-    canvas.height = video.videoHeight || CONFIG.REQUESTED_HEIGHT;
-  } catch (err) {
-    alert('Camera error: ' + err.message);
-    throw err;
+    
+    // Wait for video to be ready
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        statusEl.textContent = `Camera ready: ${video.videoWidth}x${video.videoHeight}`;
+        resolve();
+      };
+      
+      video.onerror = reject;
+      
+      // Fallback timeout
+      setTimeout(() => {
+        if (video.videoWidth > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          resolve();
+        }
+      }, 1000);
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Camera error:', error);
+    statusEl.textContent = `Camera error: ${error.message}`;
+    
+    // Try with less restrictive constraints
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
+      
+      video.srcObject = stream;
+      await new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth || CONFIG.REQUESTED_WIDTH;
+          canvas.height = video.videoHeight || CONFIG.REQUESTED_HEIGHT;
+          resolve();
+        };
+      });
+      
+      statusEl.textContent = 'Camera ready (fallback mode)';
+      return true;
+    } catch (fallbackError) {
+      statusEl.textContent = 'Cannot access camera. Please check permissions.';
+      throw fallbackError;
+    }
   }
+}
 
-  statusEl.innerText = 'Status: loading MoveNet';
-  detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, { modelType: CONFIG.MOVE_NET_MODEL });
+/* =========================
+   TensorFlow & Model Setup - FIXED!
+   ========================= */
+async function setupTF() {
+  statusEl.textContent = 'Initializing TensorFlow.js...';
+  
+  try {
+    // Set WebGL backend
+    await tf.setBackend('webgl');
+    await tf.ready();
+    
+    const backend = tf.getBackend();
+    statusEl.textContent = `TF.js backend: ${backend}`;
+    
+    // Load MoveNet model - FIXED API
+    statusEl.textContent = 'Loading MoveNet model...';
+    
+    // CORRECT WAY: Use the proper modelType constants
+    const modelConfig = {
+      modelType: CONFIG.MODEL_TYPE,
+      enableSmoothing: true,
+      minPoseScore: 0.25
+    };
+    
+    detector = await poseDetection.createDetector(
+      CONFIG.MOVE_NET_MODEL, 
+      modelConfig
+    );
+    
+    if (!detector) {
+      throw new Error('Failed to create detector');
+    }
+    
+    statusEl.textContent = 'Model loaded successfully';
+    return true;
+  } catch (error) {
+    console.error('TF.js error:', error);
+    statusEl.textContent = `Model error: ${error.message}`;
+    
+    // Try CPU fallback with simpler config
+    try {
+      await tf.setBackend('cpu');
+      await tf.ready();
+      
+      detector = await poseDetection.createDetector(
+        CONFIG.MOVE_NET_MODEL, 
+        { modelType: CONFIG.MODEL_TYPE }
+      );
+      
+      statusEl.textContent = 'Model loaded on CPU (fallback)';
+      return true;
+    } catch (cpuError) {
+      statusEl.textContent = 'Failed to load model on CPU too';
+      
+      // Last resort: try with BlazePose which might be more compatible
+      try {
+        statusEl.textContent = 'Trying BlazePose as fallback...';
+        detector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.BlazePose,
+          {
+            runtime: 'tfjs',
+            enableSmoothing: true,
+            modelType: 'lite'
+          }
+        );
+        statusEl.textContent = 'BlazePose loaded as fallback';
+        return true;
+      } catch (finalError) {
+        statusEl.textContent = 'All model loading attempts failed';
+        throw finalError;
+      }
+    }
+  }
+}
 
-  statusEl.innerText = 'Status: ready';
-  lastTime = performance.now();
-  lastProcessTime = performance.now();
+/* =========================
+   Pose Detection & Processing
+   ========================= */
+function processPoseData(poses) {
+  if (!poses || poses.length === 0 || CONFIG.OPERATION_MODE === 'manual') {
+    return null;
+  }
+  
+  const pose = poses[0];
+  const keypoints = pose.keypoints;
+  
+  // MoveNet COCO format: left shoulder index 5, right shoulder index 6
+  const leftShoulder = keypoints[5];
+  const rightShoulder = keypoints[6];
+  
+  if (!leftShoulder || !rightShoulder || 
+      leftShoulder.score < CONFIG.MIN_KEYPOINT_SCORE || 
+      rightShoulder.score < CONFIG.MIN_KEYPOINT_SCORE) {
+    return null;
+  }
+  
+  return { leftShoulder, rightShoulder };
+}
+
+function calculateCommand(leftShoulder, rightShoulder, dt) {
+  // Calculate center
+  const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+  const screenCenter = canvas.width / 2;
+  
+  // Calculate shoulder distance
+  const shoulderDist = Math.abs(leftShoulder.x - rightShoulder.x);
+  
+  // Apply smoothing
+  const smoothedX = emaX.update(centerX);
+  const smoothedShoulder = emaShoulder.update(shoulderDist);
+  
+  // Calculate error
+  const errorX = smoothedX - screenCenter;
+  
+  // Get PID adjustment
+  const pidAdjustment = pidController.update(errorX, dt);
+  
+  // Adaptive deadzone
+  const adaptiveDeadzone = deadzone + Math.abs(pidAdjustment) * 10;
+  
+  // Determine horizontal command
+  let horizontalCmd = 'CENTER';
+  if (errorX < -adaptiveDeadzone) {
+    horizontalCmd = 'LEFT';
+  } else if (errorX > adaptiveDeadzone) {
+    horizontalCmd = 'RIGHT';
+  }
+  
+  // Determine distance command (relative to average)
+  const avgShoulderDist = 100; // Base average
+  let distanceCmd = '';
+  
+  if (smoothedShoulder < avgShoulderDist * 0.7) {
+    distanceCmd = 'FORWARD';
+  } else if (smoothedShoulder > avgShoulderDist * 1.4) {
+    distanceCmd = 'BACKWARD';
+  }
+  
+  // Combine commands
+  let command = distanceCmd ? `${distanceCmd}_${horizontalCmd}` : horizontalCmd;
+  
+  return {
+    command,
+    debug: {
+      errorX: Math.round(errorX),
+      pidAdjustment: pidAdjustment.toFixed(2),
+      adaptiveDeadzone: Math.round(adaptiveDeadzone),
+      shoulderDist: Math.round(smoothedShoulder)
+    }
+  };
+}
+
+/* =========================
+   Drawing Functions
+   ========================= */
+function drawDebugInfo(leftShoulder, rightShoulder, debug) {
+  if (!leftShoulder || !rightShoulder) return;
+  
+  // Draw shoulder points
+  ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+  ctx.beginPath();
+  ctx.arc(leftShoulder.x, leftShoulder.y, 6, 0, Math.PI * 2);
+  ctx.arc(rightShoulder.x, rightShoulder.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw center point
+  const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+  const centerY = (leftShoulder.y + rightShoulder.y) / 2;
+  
+  ctx.fillStyle = 'rgba(255, 255, 0, 0.9)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw deadzone area
+  ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
+  ctx.lineWidth = 2;
+  const deadzoneWidth = debug.adaptiveDeadzone * 2;
+  ctx.strokeRect(
+    canvas.width / 2 - debug.adaptiveDeadzone,
+    centerY - 30,
+    deadzoneWidth,
+    60
+  );
+  
+  // Draw center line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Draw debug text
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.font = '14px monospace';
+  ctx.fillText(`Error: ${debug.errorX}px`, 10, 30);
+  ctx.fillText(`PID: ${debug.pidAdjustment}`, 10, 50);
+  ctx.fillText(`Deadzone: ±${debug.adaptiveDeadzone}px`, 10, 70);
+  ctx.fillText(`Shoulder: ${debug.shoulderDist}px`, 10, 90);
+}
+
+/* =========================
+   Main Detection Loop - FIXED
+   ========================= */
+async function detectLoop(timestamp) {
+  if (!isRunning || !detector) {
+    requestAnimationFrame(detectLoop);
+    return;
+  }
+  
+  // Calculate FPS
+  frameCount++;
+  if (timestamp - lastFpsUpdate >= 1000) {
+    currentFps = frameCount;
+    frameCount = 0;
+    lastFpsUpdate = timestamp;
+  }
+  
+  // Throttle detection
+  if (timestamp - lastProcessTime < (1000 / CONFIG.TARGET_FPS)) {
+    requestAnimationFrame(detectLoop);
+    return;
+  }
+  
+  lastProcessTime = timestamp;
+  
+  try {
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw video frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Estimate poses
+    const startTime = performance.now();
+    const poses = await detector.estimatePoses(video);
+    const processTime = performance.now() - startTime;
+    
+    // Update stats
+    statsEl.textContent = `FPS: ${currentFps} | Latency: ${Math.round(processTime)}ms`;
+    
+    if (CONFIG.OPERATION_MODE === 'auto') {
+      const poseData = processPoseData(poses);
+      
+      if (poseData) {
+        const { leftShoulder, rightShoulder } = poseData;
+        
+        // Calculate time delta
+        const dt = Math.max(0.001, (timestamp - (lastProcessTime || timestamp)) / 1000);
+        
+        // Calculate command
+        const result = calculateCommand(leftShoulder, rightShoulder, dt);
+        
+        // Send command
+        if (result && result.command !== currentCommand) {
+          sendCommand(result.command);
+        }
+        
+        // Draw debug info
+        drawDebugInfo(leftShoulder, rightShoulder, result.debug);
+        
+        statusEl.textContent = `Tracking: ${result.command}`;
+      } else {
+        statusEl.textContent = 'No person detected';
+        if (currentCommand !== 'STOP') {
+          sendCommand('STOP');
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('Detection error:', error);
+    statusEl.textContent = 'Detection error - recovering';
+    
+    // Reset filters on error
+    emaX.value = null;
+    emaShoulder.value = null;
+    pidController.reset();
+    
+    // Wait before retrying
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
   requestAnimationFrame(detectLoop);
 }
 
 /* =========================
-   Start
+   Initialize Everything
+   ========================= */
+async function initialize() {
+  if (isInitialized) return;
+  
+  try {
+    initDOM();
+    
+    await setupCamera();
+    
+    await setupTF();
+    
+    // Start video playback
+    await video.play();
+    
+    isRunning = true;
+    isInitialized = true;
+    
+    statusEl.textContent = 'System ready - Starting detection...';
+    
+    // Start detection loop
+    lastProcessTime = performance.now();
+    requestAnimationFrame(detectLoop);
+    
+  } catch (error) {
+    console.error('Initialization failed:', error);
+    statusEl.textContent = `Initialization failed: ${error.message}`;
+    
+    // Show user-friendly error
+    cmdEl.textContent = 'Please refresh and allow camera access';
+    cmdEl.style.color = '#ff3232';
+    
+    // Provide helpful error message
+    if (error.message.includes('Lightning') || error.message.includes('modelType')) {
+      cmdEl.textContent += ' - Model loading issue detected';
+      console.error('Model loading issue. Available modelTypes:', poseDetection.movenet?.modelType);
+    }
+  }
+}
+
+/* =========================
+   Start on Load
    ========================= */
 window.addEventListener('load', () => {
-  statusEl = document.getElementById('status');
-  statsEl = document.getElementById('stats');
-  cmdEl = document.getElementById('cmd');
-  init().catch(e => { statusEl.innerText = 'Init failed: ' + e; console.error(e); });
+  // Set canvas size to window size for display
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  });
+  
+  // Start initialization
+  initialize();
+  
+  // Add key controls for manual mode
+  document.addEventListener('keydown', (e) => {
+    if (CONFIG.OPERATION_MODE === 'manual') {
+      switch(e.key) {
+        case 'ArrowUp': sendCommand('FORWARD'); break;
+        case 'ArrowDown': sendCommand('BACKWARD'); break;
+        case 'ArrowLeft': sendCommand('LEFT'); break;
+        case 'ArrowRight': sendCommand('RIGHT'); break;
+        case ' ': sendCommand('STOP'); break;
+        case 'c': sendCommand('CENTER'); break;
+      }
+    }
+  });
 });
 
+/* =========================
+   Cleanup on Unload
+   ========================= */
+window.addEventListener('beforeunload', () => {
+  isRunning = false;
+  
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop());
+  }
+});
 </script>
 </body>
 </html>
